@@ -67,8 +67,8 @@ export interface HouseData {
   average_import_price: number;
   cheap_usage_percent: number;
   expensive_usage_percent: number;
-  battery_contribution_percent: number;
-  smart_score: number;
+  battery_contribution_percent: number | null;
+  smart_score: number | null;
   highest_cost_period?: Record<string, unknown>;
   lowest_cost_period?: Record<string, unknown>;
 }
