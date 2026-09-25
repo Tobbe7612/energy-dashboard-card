@@ -147,6 +147,7 @@ let EnergyDashboardCard = class EnergyDashboardCard extends i {
         ${this.renderTimelineSection()}
         ${this.renderUpcomingPricesSection()}
         ${this.renderKpiSection()}
+        ${this.renderSmartScoreSection()}
         ${this.renderConsumersSection()}
         ${this.renderInsightsSection()}
       </ha-card>
@@ -740,6 +741,47 @@ let EnergyDashboardCard = class EnergyDashboardCard extends i {
     // ---------------------------------------------------------------------------
     // CONSUMERS
     // ---------------------------------------------------------------------------
+    renderSmartScoreSection() {
+        if (!this.data)
+            return b ``;
+        const house = this.data.house;
+        const score = house.smart_score;
+        return b `
+      <section class="smart-score-section">
+        <div class="section-title">SMART SCORE</div>
+        <div class="smart-score-card">
+          <div class="smart-score-main">
+            <div class="smart-score-value">
+              ${score !== null && Number.isFinite(score)
+            ? this.formatNumber(score, 0)
+            : "—"}
+              <span>/ 100</span>
+            </div>
+          </div>
+          <div class="smart-score-metrics">
+            <div class="smart-score-metric">
+              <div class="smart-score-label">Under medianpris</div>
+              <div class="smart-score-metric-value">
+                ${this.formatNumber(house.cheap_usage_percent, 1)}<span>%</span>
+              </div>
+            </div>
+            <div class="smart-score-metric">
+              <div class="smart-score-label">Över medianpris</div>
+              <div class="smart-score-metric-value">
+                ${this.formatNumber(house.expensive_usage_percent, 1)}<span>%</span>
+              </div>
+            </div>
+            <div class="smart-score-metric">
+              <div class="smart-score-label">Batteribidrag</div>
+              <div class="smart-score-metric-value">
+                ${this.formatNumber(house.battery_contribution_percent ?? undefined, 1)}<span>%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    `;
+    }
     renderConsumersSection() {
         if (!this.data)
             return b ``;
@@ -832,6 +874,24 @@ let EnergyDashboardCard = class EnergyDashboardCard extends i {
             </div>
           </div>
         </div>
+
+        ${analysis.price_alignment_delta !== null
+            ? b `
+              <div class="consumer-price-alignment">
+                ${analysis.price_alignment_delta > 0
+                ? b `
+                      ${this.formatNumber(analysis.price_alignment_delta, 2)} kr/kWh billigare än huset
+                    `
+                : analysis.price_alignment_delta < 0
+                    ? b `
+                        ${this.formatNumber(Math.abs(analysis.price_alignment_delta), 2)} kr/kWh dyrare än huset
+                      `
+                    : b `
+                        Samma pris som huset
+                      `}
+              </div>
+            `
+            : b ``}
       </div>
     `;
     }
@@ -1405,6 +1465,54 @@ let EnergyDashboardCard = class EnergyDashboardCard extends i {
       margin-top: 6px;
     }
 
+    /* SMART SCORE */
+
+    .smart-score-section {
+      border-top: 1px solid var(--divider-color);
+      padding: 20px 22px 22px;
+    }
+
+    .smart-score-card {
+      display: grid;
+      grid-template-columns: minmax(180px, 0.8fr) minmax(0, 1.2fr);
+      gap: 18px;
+      padding: 16px;
+      border: 1px solid var(--divider-color);
+      border-radius: 12px;
+    }
+
+    .smart-score-value {
+      font-size: 32px;
+      font-weight: 700;
+      line-height: 1.1;
+    }
+
+    .smart-score-value span,
+    .smart-score-metric-value span {
+      color: var(--secondary-text-color);
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .smart-score-label {
+      color: var(--secondary-text-color);
+      font-size: 11px;
+      margin-bottom: 6px;
+    }
+
+    .smart-score-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      align-items: center;
+    }
+
+    .smart-score-metric-value {
+      font-size: 17px;
+      font-weight: 650;
+      white-space: nowrap;
+    }
+
     /* CONSUMERS */
 
     .consumers-section {
@@ -1463,6 +1571,13 @@ let EnergyDashboardCard = class EnergyDashboardCard extends i {
       color: var(--secondary-text-color);
       font-size: 10px;
       font-weight: 500;
+    }
+
+    .consumer-price-alignment {
+      margin-top: 10px;
+      color: var(--secondary-text-color);
+      font-size: 11px;
+      line-height: 1.4;
     }
 
     .muted-value {
@@ -1604,6 +1719,7 @@ let EnergyDashboardCard = class EnergyDashboardCard extends i {
 
       .timeline-section,
       .kpi-section,
+      .smart-score-section,
       .consumers-section,
       .insights-section {
         padding: 18px;
@@ -1636,6 +1752,10 @@ let EnergyDashboardCard = class EnergyDashboardCard extends i {
 
       .consumer {
         padding: 12px;
+      }
+
+      .smart-score-card {
+        grid-template-columns: 1fr;
       }
     }
   `; }

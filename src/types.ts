@@ -79,6 +79,7 @@ export interface ConsumerAnalysis {
   average_import_price: number | null;
   cheap_usage_percent: number | null;
   expensive_usage_percent?: number | null;
+  price_alignment_delta: number | null;
 }
 
 export interface ConsumerHistoryPoint {

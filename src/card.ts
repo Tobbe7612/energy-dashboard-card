@@ -948,6 +948,30 @@ export class EnergyDashboardCard extends LitElement {
             </div>
           </div>
         </div>
+
+        ${analysis.price_alignment_delta !== null
+          ? html`
+              <div class="consumer-price-alignment">
+                ${analysis.price_alignment_delta > 0
+                  ? html`
+                      ${this.formatNumber(
+                        analysis.price_alignment_delta,
+                        2,
+                      )} kr/kWh billigare än huset
+                    `
+                  : analysis.price_alignment_delta < 0
+                    ? html`
+                        ${this.formatNumber(
+                          Math.abs(analysis.price_alignment_delta),
+                          2,
+                        )} kr/kWh dyrare än huset
+                      `
+                    : html`
+                        Samma pris som huset
+                      `}
+              </div>
+            `
+          : html``}
       </div>
     `;
   }
@@ -1686,6 +1710,13 @@ export class EnergyDashboardCard extends LitElement {
       color: var(--secondary-text-color);
       font-size: 10px;
       font-weight: 500;
+    }
+
+    .consumer-price-alignment {
+      margin-top: 10px;
+      color: var(--secondary-text-color);
+      font-size: 11px;
+      line-height: 1.4;
     }
 
     .muted-value {
