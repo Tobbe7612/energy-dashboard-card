@@ -142,15 +142,14 @@ export class EnergyDashboardCard extends LitElement {
     const current = this.data.price.current;
     const intelligence = this.data.price_intelligence;
     const statistics = intelligence.today_import_price_statistics;
-    const cheapest = intelligence.cheapest_future_period;
 
     const priceClass = this.getPriceClassLabel(current.price_class);
     const priceClassKey = current.price_class.toLowerCase();
 
     return html`
       <section class="price-header">
-        <div class="header-top">
-          <div>
+        <div class="overview-layout">
+          <div class="current-price-card">
             <div class="eyebrow">IMPORTPRIS JUST NU</div>
 
             <div class="current-price">
@@ -161,70 +160,42 @@ export class EnergyDashboardCard extends LitElement {
             <div class="current-time">
               ${this.formatInterval(current.start, current.end)}
             </div>
-          </div>
 
-          <div class="price-status ${priceClassKey}">
-            <div class="status-label">${priceClass}</div>
-
-            <div class="status-pqi">
-              PQI ${this.formatNumber(
-                intelligence.price_quality_index,
-                0,
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div class="price-divider"></div>
-
-        <div class="price-stats">
-          <div class="stat">
-            <div class="stat-label">Lägsta importpris idag</div>
-            <div class="stat-value">
-              ${this.formatPrice(statistics.lowest_import_price)}
+            <div class="price-status ${priceClassKey}">
+              <div class="status-label">${priceClass}</div>
             </div>
           </div>
 
-          <div class="stat">
-            <div class="stat-label">Snitt importpris idag</div>
-            <div class="stat-value">
-              ${this.formatPrice(statistics.average_import_price)}
-            </div>
-          </div>
-
-          <div class="stat">
-            <div class="stat-label">Högsta importpris idag</div>
-            <div class="stat-value">
-              ${this.formatPrice(statistics.highest_import_price)}
-            </div>
-          </div>
-        </div>
-
-        ${cheapest
-          ? html`
-              <div class="cheapest-period">
-                <div class="cheapest-icon">↓</div>
-
-                <div class="cheapest-content">
-                  <div class="cheapest-label">
-                    NÄSTA BILLIGA PERIOD
-                  </div>
-
-                  <div class="cheapest-time">
-                    ${this.formatInterval(
-                      cheapest.start,
-                      cheapest.end,
-                    )}
-                  </div>
-
-                  <div class="cheapest-price">
-                    ${this.formatPrice(cheapest.average_import_price)}
-                    kr/kWh import
-                  </div>
-                </div>
+          <div class="price-stats">
+            <div class="stat">
+              <div class="stat-label">Lägsta importpris idag</div>
+              <div class="stat-value">
+                ${this.formatPrice(statistics.lowest_import_price)}
               </div>
-            `
-          : ""}
+            </div>
+
+            <div class="stat">
+              <div class="stat-label">Högsta importpris idag</div>
+              <div class="stat-value">
+                ${this.formatPrice(statistics.highest_import_price)}
+              </div>
+            </div>
+
+            <div class="stat">
+              <div class="stat-label">Snitt importpris idag</div>
+              <div class="stat-value">
+                ${this.formatPrice(statistics.average_import_price)}
+              </div>
+            </div>
+
+            <div class="stat">
+              <div class="stat-label">Prisindex (PQI)</div>
+              <div class="stat-value">
+                ${this.formatNumber(intelligence.price_quality_index, 0)}/100
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
     `;
   }
@@ -847,12 +818,6 @@ export class EnergyDashboardCard extends LitElement {
           </div>
           <div class="smart-score-metrics">
             <div class="smart-score-metric">
-              <div class="smart-score-label">Under medianpris</div>
-              <div class="smart-score-metric-value">
-                ${this.formatNumber(house.cheap_usage_percent, 1)}<span>%</span>
-              </div>
-            </div>
-            <div class="smart-score-metric">
               <div class="smart-score-label">Över medianpris</div>
               <div class="smart-score-metric-value">
                 ${this.formatNumber(house.expensive_usage_percent, 1)}<span>%</span>
@@ -1357,11 +1322,28 @@ export class EnergyDashboardCard extends LitElement {
       padding: 22px;
     }
 
-    .header-top {
-      display: flex;
-      justify-content: space-between;
+    .overview-layout {
+      display: grid;
+      grid-template-columns: minmax(240px, 0.42fr) minmax(0, 1fr);
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .current-price-card {
       align-items: flex-start;
-      gap: 20px;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      padding: 14px;
+      border: 1px solid var(--divider-color);
+      border-radius: 12px;
+    }
+
+    .price-stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      min-width: 0;
     }
 
     .eyebrow,
@@ -1400,21 +1382,19 @@ export class EnergyDashboardCard extends LitElement {
 
     .price-status {
       min-width: 120px;
+      max-width: 100%;
+      box-sizing: border-box;
       padding: 10px 12px;
       border: 1px solid var(--divider-color);
       border-radius: 12px;
       text-align: right;
+      align-self: flex-start;
+      margin-top: 14px;
     }
 
     .status-label {
       font-size: 14px;
       font-weight: 700;
-    }
-
-    .status-pqi {
-      color: var(--secondary-text-color);
-      font-size: 11px;
-      margin-top: 4px;
     }
 
     .very_cheap .status-label,
@@ -1434,19 +1414,12 @@ export class EnergyDashboardCard extends LitElement {
       color: var(--error-color);
     }
 
-    .price-divider {
-      border-top: 1px solid var(--divider-color);
-      margin: 20px 0;
-    }
-
-    .price-stats {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 12px;
-    }
-
     .stat {
+      box-sizing: border-box;
       min-width: 0;
+      padding: 12px;
+      border: 1px solid var(--divider-color);
+      border-radius: 12px;
     }
 
     .stat-label {
@@ -1458,49 +1431,6 @@ export class EnergyDashboardCard extends LitElement {
     .stat-value {
       font-size: 17px;
       font-weight: 600;
-    }
-
-    .cheapest-period {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      margin-top: 20px;
-      padding: 13px 14px;
-      border: 1px solid var(--divider-color);
-      border-radius: 12px;
-    }
-
-    .cheapest-icon {
-      align-items: center;
-      background: var(--success-color);
-      border-radius: 50%;
-      color: var(--primary-background-color);
-      display: flex;
-      flex: 0 0 30px;
-      font-size: 18px;
-      font-weight: 700;
-      height: 30px;
-      justify-content: center;
-      width: 30px;
-    }
-
-    .cheapest-label {
-      color: var(--secondary-text-color);
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0.1em;
-    }
-
-    .cheapest-time {
-      font-size: 15px;
-      font-weight: 600;
-      margin-top: 2px;
-    }
-
-    .cheapest-price {
-      color: var(--secondary-text-color);
-      font-size: 11px;
-      margin-top: 2px;
     }
 
     /* TIMELINE */
@@ -1918,6 +1848,18 @@ export class EnergyDashboardCard extends LitElement {
       }
     }
 
+    @container dashboard-card (max-width: 780px) {
+      .overview-layout {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
+    @container dashboard-card (max-width: 480px) {
+      .price-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
     @container dashboard-card (max-width: 860px) {
       .dashboard-lower-grid {
         grid-template-columns: minmax(0, 1fr);
@@ -1950,10 +1892,6 @@ export class EnergyDashboardCard extends LitElement {
     @media (max-width: 500px) {
       .price-header {
         padding: 18px;
-      }
-
-      .header-top {
-        gap: 12px;
       }
 
       .current-price {
