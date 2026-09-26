@@ -76,6 +76,7 @@ export interface HouseData {
 export interface ConsumerAnalysis {
   energy_kwh: number;
   cost: number;
+  share_percent: number;
   average_import_price: number | null;
   cheap_usage_percent: number | null;
   expensive_usage_percent?: number | null;

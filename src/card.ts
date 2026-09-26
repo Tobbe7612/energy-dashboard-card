@@ -871,10 +871,6 @@ export class EnergyDashboardCard extends LitElement {
     const name =
       consumer.name || this.getConsumerFallbackName(consumer);
 
-    const share = hasConsumption
-      ? this.calculateConsumerShare(analysis.energy_kwh)
-      : 0;
-
     return html`
       <div class="consumer">
         <div class="consumer-main">
@@ -909,7 +905,7 @@ export class EnergyDashboardCard extends LitElement {
             <div class="consumer-metric-label">Andel</div>
 
             <div class="consumer-metric-value">
-              ${this.formatNumber(share, 1)}
+              ${this.formatNumber(analysis.share_percent, 1)}
               <span>%</span>
             </div>
           </div>
@@ -974,19 +970,6 @@ export class EnergyDashboardCard extends LitElement {
           : html``}
       </div>
     `;
-  }
-
-  private calculateConsumerShare(
-    energyKwh: number,
-  ): number {
-    if (!this.data || this.data.house.consumption_kwh <= 0) {
-      return 0;
-    }
-
-    return (
-      (energyKwh / this.data.house.consumption_kwh) *
-      100
-    );
   }
 
   private getConsumerFallbackName(
