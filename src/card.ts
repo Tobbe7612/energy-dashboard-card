@@ -97,13 +97,37 @@ export class EnergyDashboardCard extends LitElement {
 
     return html`
       <ha-card>
-        ${this.renderPriceHeader()}
-        ${this.renderTimelineSection()}
-        ${this.renderUpcomingPricesSection()}
-        ${this.renderKpiSection()}
-        ${this.renderSmartScoreSection()}
-        ${this.renderConsumersSection()}
-        ${this.renderInsightsSection()}
+        <div class="dashboard-layout">
+          <div class="dashboard-overview">
+            ${this.renderPriceHeader()}
+          </div>
+
+          <div class="dashboard-timeline">
+            ${this.renderTimelineSection()}
+          </div>
+
+          <div class="dashboard-upcoming">
+            ${this.renderUpcomingPricesSection()}
+          </div>
+
+          <div class="dashboard-kpi">
+            ${this.renderKpiSection()}
+          </div>
+
+          <div class="dashboard-smart-score">
+            ${this.renderSmartScoreSection()}
+          </div>
+
+          <div class="dashboard-lower-grid">
+            <div class="dashboard-consumers">
+              ${this.renderConsumersSection()}
+            </div>
+
+            <div class="dashboard-insights">
+              ${this.renderInsightsSection()}
+            </div>
+          </div>
+        </div>
       </ha-card>
     `;
   }
@@ -1291,6 +1315,44 @@ export class EnergyDashboardCard extends LitElement {
       overflow: hidden;
     }
 
+    .dashboard-layout {
+      container-name: dashboard-card;
+      container-type: inline-size;
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      min-width: 0;
+      width: 100%;
+    }
+
+    .dashboard-overview,
+    .dashboard-timeline,
+    .dashboard-upcoming,
+    .dashboard-kpi,
+    .dashboard-smart-score,
+    .dashboard-lower-grid {
+      grid-column: 1 / -1;
+      min-width: 0;
+    }
+
+    .dashboard-lower-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      min-width: 0;
+    }
+
+    .dashboard-consumers,
+    .dashboard-insights {
+      min-width: 0;
+    }
+
+    .dashboard-upcoming > .upcoming-section,
+    .upcoming-list {
+      box-sizing: border-box;
+      max-width: 100%;
+      min-width: 0;
+      width: 100%;
+    }
+
     .price-header {
       padding: 22px;
     }
@@ -1542,6 +1604,7 @@ export class EnergyDashboardCard extends LitElement {
     }
 
     .upcoming-price {
+      box-sizing: border-box;
       min-width: 110px;
       padding: 11px 10px;
       border: 1px solid var(--divider-color);
@@ -1849,6 +1912,29 @@ export class EnergyDashboardCard extends LitElement {
       white-space: pre-wrap;
     }
 
+    @container dashboard-card (max-width: 980px) {
+      .upcoming-list {
+        grid-template-columns: repeat(8, 118px);
+      }
+    }
+
+    @container dashboard-card (max-width: 860px) {
+      .dashboard-lower-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
+    @container dashboard-card (max-width: 700px) {
+      .kpi-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .consumer-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        row-gap: 12px;
+      }
+    }
+
     @media (max-width: 700px) {
       .kpi-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1859,9 +1945,6 @@ export class EnergyDashboardCard extends LitElement {
         row-gap: 12px;
       }
 
-      .upcoming-list {
-        grid-template-columns: repeat(8, 118px);
-      }
     }
 
     @media (max-width: 500px) {
