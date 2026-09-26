@@ -1160,6 +1160,57 @@ export class EnergyDashboardCard extends LitElement {
             </div>
           </div>
         `;
+
+      case "consumer_share":
+        return html`
+          <div class="insight insight-neutral">
+            <div class="insight-icon">•</div>
+
+            <div class="insight-content">
+              <div class="insight-title">
+                ${insight.name}
+              </div>
+
+              <div class="insight-text">
+                ${this.formatNumber(insight.share_percent, 1)}%
+                av hushållets förbrukning.
+              </div>
+            </div>
+          </div>
+        `;
+
+      case "consumer_price_alignment":
+        return html`
+          <div class="insight insight-neutral">
+            <div class="insight-icon">•</div>
+
+            <div class="insight-content">
+              <div class="insight-title">
+                ${insight.name} – prisjämförelse
+              </div>
+
+              <div class="insight-text">
+                ${insight.price_alignment_delta > 0
+                  ? html`
+                      ${this.formatNumber(
+                        insight.price_alignment_delta,
+                        2,
+                      )} kr/kWh billigare än huset.
+                    `
+                  : insight.price_alignment_delta < 0
+                    ? html`
+                        ${this.formatNumber(
+                          Math.abs(insight.price_alignment_delta),
+                          2,
+                        )} kr/kWh dyrare än huset.
+                      `
+                    : html`
+                        Samma snittpris som huset.
+                      `}
+              </div>
+            </div>
+          </div>
+        `;
     }
   }
 

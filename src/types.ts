@@ -136,11 +136,27 @@ export interface ConsumerCostInsight {
   average_import_price: number | null;
 }
 
+export interface ConsumerShareInsight {
+  type: "consumer_share";
+  consumer_id: string;
+  name: string;
+  share_percent: number;
+}
+
+export interface ConsumerPriceAlignmentInsight {
+  type: "consumer_price_alignment";
+  consumer_id: string;
+  name: string;
+  price_alignment_delta: number;
+}
+
 export type DashboardInsight =
   | CheapConsumptionInsight
   | ExpensiveConsumptionInsight
   | CostPeriodInsight
-  | ConsumerCostInsight;
+  | ConsumerCostInsight
+  | ConsumerShareInsight
+  | ConsumerPriceAlignmentInsight;
 
 export interface DashboardPayload {
   consumers: DashboardConsumers;

@@ -1044,6 +1044,49 @@ let EnergyDashboardCard = class EnergyDashboardCard extends i {
             </div>
           </div>
         `;
+            case "consumer_share":
+                return b `
+          <div class="insight insight-neutral">
+            <div class="insight-icon">•</div>
+
+            <div class="insight-content">
+              <div class="insight-title">
+                ${insight.name}
+              </div>
+
+              <div class="insight-text">
+                ${this.formatNumber(insight.share_percent, 1)}%
+                av hushållets förbrukning.
+              </div>
+            </div>
+          </div>
+        `;
+            case "consumer_price_alignment":
+                return b `
+          <div class="insight insight-neutral">
+            <div class="insight-icon">•</div>
+
+            <div class="insight-content">
+              <div class="insight-title">
+                ${insight.name} – prisjämförelse
+              </div>
+
+              <div class="insight-text">
+                ${insight.price_alignment_delta > 0
+                    ? b `
+                      ${this.formatNumber(insight.price_alignment_delta, 2)} kr/kWh billigare än huset.
+                    `
+                    : insight.price_alignment_delta < 0
+                        ? b `
+                        ${this.formatNumber(Math.abs(insight.price_alignment_delta), 2)} kr/kWh dyrare än huset.
+                      `
+                        : b `
+                        Samma snittpris som huset.
+                      `}
+              </div>
+            </div>
+          </div>
+        `;
         }
     }
     // ---------------------------------------------------------------------------
