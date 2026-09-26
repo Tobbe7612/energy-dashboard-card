@@ -102,6 +102,10 @@ export class EnergyDashboardCard extends LitElement {
             ${this.renderPriceHeader()}
           </div>
 
+          <div class="dashboard-smart-score">
+            ${this.renderSmartScoreSection()}
+          </div>
+
           <div class="dashboard-timeline-prices">
             <div class="dashboard-timeline">
               ${this.renderTimelineSection()}
@@ -114,10 +118,6 @@ export class EnergyDashboardCard extends LitElement {
 
           <div class="dashboard-kpi">
             ${this.renderKpiSection()}
-          </div>
-
-          <div class="dashboard-smart-score">
-            ${this.renderSmartScoreSection()}
           </div>
 
           <div class="dashboard-lower-grid">
@@ -154,17 +154,19 @@ export class EnergyDashboardCard extends LitElement {
           <div class="current-price-card">
             <div class="eyebrow">IMPORTPRIS JUST NU</div>
 
-            <div class="current-price">
-              ${this.formatPrice(current.import)}
-              <span class="unit">kr/kWh</span>
+            <div class="current-price-row">
+              <div class="current-price">
+                ${this.formatPrice(current.import)}
+                <span class="unit">kr/kWh</span>
+              </div>
+
+              <div class="price-status ${priceClassKey}">
+                <div class="status-label">${priceClass}</div>
+              </div>
             </div>
 
             <div class="current-time">
               ${this.formatInterval(current.start, current.end)}
-            </div>
-
-            <div class="price-status ${priceClassKey}">
-              <div class="status-label">${priceClass}</div>
             </div>
           </div>
 
@@ -841,9 +843,9 @@ export class EnergyDashboardCard extends LitElement {
 
     return html`
       <section class="smart-score-section">
-        <div class="section-title">SMART SCORE</div>
         <div class="smart-score-card">
           <div class="smart-score-main">
+            <div class="section-title">SMART SCORE</div>
             <div class="smart-score-value">
               ${score !== null && Number.isFinite(score)
                 ? this.formatNumber(score, 0)
@@ -882,8 +884,8 @@ export class EnergyDashboardCard extends LitElement {
         <div class="consumer-list-header" aria-hidden="true">
           <div>Enhet</div>
           <div>Förbrukning</div>
-          <div>Andel</div>
           <div class="consumer-average-price-column">Snittpris</div>
+          <div>Kostnad</div>
         </div>
 
         <div class="consumer-list">
@@ -917,11 +919,6 @@ export class EnergyDashboardCard extends LitElement {
               `}
         </div>
 
-        <div class="consumer-metric-value">
-          ${this.formatNumber(analysis.share_percent, 1)}
-          <span>%</span>
-        </div>
-
         <div class="consumer-metric-value consumer-average-price-column">
           ${analysis.average_import_price !== null
             ? html`
@@ -929,6 +926,46 @@ export class EnergyDashboardCard extends LitElement {
                 <span>kr/kWh</span>
               `
             : html`<span class="muted-value">—</span>`}
+          </div>
+
+        <div class="consumer-metric-value consumer-cost">
+          ${this.formatNumber(analysis.cost, 2)}
+          <span>kr</span>
+        </div>
+
+        <div class="consumer-details">
+          <span>
+            ${this.formatNumber(analysis.share_percent, 1)}% av husförbrukningen
+          </span>
+          <span class="consumer-detail-separator">·</span>
+          ${analysis.price_alignment_delta === null
+            ? html`<span class="muted-value">Prisjämförelse saknas</span>`
+            : analysis.price_alignment_delta > 0
+              ? html`
+                  <span>
+                    ${this.formatNumber(
+                      analysis.price_alignment_delta,
+                      2,
+                    )} kr/kWh billigare än huset
+                  </span>
+                `
+              : analysis.price_alignment_delta < 0
+                ? html`
+                    <span>
+                      ${this.formatNumber(
+                        Math.abs(analysis.price_alignment_delta),
+                        2,
+                      )} kr/kWh dyrare än huset
+                    </span>
+                  `
+                : html`<span>Samma snittpris som huset</span>`}
+          <span class="consumer-detail-separator consumer-mobile-average-separator">·</span>
+          <span class="consumer-mobile-average-price">
+            Snittpris
+            ${analysis.average_import_price !== null
+              ? html`${this.formatPrice(analysis.average_import_price)} kr/kWh`
+              : html`—`}
+          </span>
         </div>
       </div>
     `;
@@ -955,16 +992,25 @@ export class EnergyDashboardCard extends LitElement {
   // ---------------------------------------------------------------------------
 
   private renderInsightsSection() {
-    if (!this.data || this.data.insights.length === 0) {
+    if (!this.data) {
       return html``;
     }
+
+    const insights = this.data.insights.filter(
+      (insight) =>
+        insight.type !== "consumer_cost" &&
+        insight.type !== "consumer_share" &&
+        insight.type !== "consumer_price_alignment",
+    );
+
+    if (insights.length === 0) return html``;
 
     return html`
       <section class="insights-section">
         <div class="section-title">INSIGHTS – SENASTE 24H</div>
 
         <div class="insights-list">
-          ${this.data.insights.map((insight) =>
+          ${insights.map((insight) =>
             this.renderInsight(insight),
           )}
         </div>
@@ -1288,7 +1334,15 @@ export class EnergyDashboardCard extends LitElement {
 
     .dashboard-consumers,
     .dashboard-insights {
+      display: flex;
+      flex-direction: column;
       min-width: 0;
+    }
+
+    .dashboard-consumers > .consumers-section,
+    .dashboard-insights > .insights-section {
+      box-sizing: border-box;
+      flex: 1;
     }
 
     .dashboard-upcoming > .upcoming-section,
@@ -1347,6 +1401,15 @@ export class EnergyDashboardCard extends LitElement {
       letter-spacing: -0.03em;
     }
 
+    .current-price-row {
+      align-items: center;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 12px;
+      min-width: 0;
+      max-width: 100%;
+    }
+
     .current-price .unit {
       color: var(--secondary-text-color);
       font-size: 14px;
@@ -1371,6 +1434,11 @@ export class EnergyDashboardCard extends LitElement {
       text-align: right;
       align-self: flex-start;
       margin-top: 14px;
+    }
+
+    .current-price-row .price-status {
+      flex: 0 1 auto;
+      margin-top: 0;
     }
 
     .status-label {
@@ -1609,16 +1677,25 @@ export class EnergyDashboardCard extends LitElement {
 
     .smart-score-section {
       border-top: 1px solid var(--divider-color);
-      padding: 20px 22px 22px;
+      padding: 10px 22px;
     }
 
     .smart-score-card {
       display: grid;
-      grid-template-columns: minmax(180px, 0.8fr) minmax(0, 1.2fr);
-      gap: 18px;
-      padding: 16px;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+      align-items: center;
+      gap: 16px;
+      padding: 10px 14px;
       border: 1px solid var(--divider-color);
       border-radius: 12px;
+    }
+
+    .smart-score-main {
+      align-items: baseline;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 12px;
+      min-width: 0;
     }
 
     .smart-score-value {
@@ -1642,9 +1719,10 @@ export class EnergyDashboardCard extends LitElement {
 
     .smart-score-metrics {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 10px;
       align-items: center;
+      min-width: 0;
     }
 
     .smart-score-metric-value {
@@ -1663,6 +1741,9 @@ export class EnergyDashboardCard extends LitElement {
     .consumer-list {
       display: grid;
       min-width: 0;
+      max-height: 240px;
+      overflow-y: auto;
+      overscroll-behavior: contain;
     }
 
     .consumer-list-header,
@@ -1670,7 +1751,7 @@ export class EnergyDashboardCard extends LitElement {
       align-items: center;
       column-gap: 10px;
       display: grid;
-      grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 0.7fr) minmax(0, 1.1fr);
+      grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 0.9fr);
       min-width: 0;
     }
 
@@ -1684,6 +1765,28 @@ export class EnergyDashboardCard extends LitElement {
     .consumer {
       border-top: 1px solid var(--divider-color);
       padding: 10px 0;
+    }
+
+    .consumer-details {
+      align-items: baseline;
+      color: var(--secondary-text-color);
+      display: flex;
+      flex-wrap: wrap;
+      font-size: 12px;
+      gap: 2px 5px;
+      grid-column: 1 / -1;
+      min-width: 0;
+      overflow-wrap: anywhere;
+      padding-top: 2px;
+    }
+
+    .consumer-detail-separator {
+      color: var(--secondary-text-color);
+    }
+
+    .consumer-mobile-average-price,
+    .consumer-mobile-average-separator {
+      display: none;
     }
 
     .consumer-name {
@@ -1835,6 +1938,16 @@ export class EnergyDashboardCard extends LitElement {
       .dashboard-lower-grid {
         grid-template-columns: minmax(0, 1fr);
       }
+
+      .dashboard-consumers,
+      .dashboard-insights {
+        display: block;
+      }
+
+      .consumer-list {
+        max-height: none;
+        overflow-y: visible;
+      }
     }
 
     @container dashboard-card (max-width: 700px) {
@@ -1854,6 +1967,11 @@ export class EnergyDashboardCard extends LitElement {
     }
 
     @container dashboard-card (max-width: 700px) {
+      .smart-score-card {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 8px;
+      }
+
       .kpi-grid {
         grid-template-columns: minmax(0, 1fr);
       }
@@ -1886,11 +2004,23 @@ export class EnergyDashboardCard extends LitElement {
     @container dashboard-card (max-width: 520px) {
       .consumer-list-header,
       .consumer {
-        grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 0.7fr);
+        grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 0.9fr);
       }
 
       .consumer-average-price-column {
         display: none;
+      }
+
+      .consumer-mobile-average-price,
+      .consumer-mobile-average-separator {
+        display: inline;
+      }
+    }
+
+    @container dashboard-card (max-width: 420px) {
+      .smart-score-metrics {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 8px;
       }
     }
 
@@ -1939,9 +2069,6 @@ export class EnergyDashboardCard extends LitElement {
         padding: 12px;
       }
 
-      .smart-score-card {
-        grid-template-columns: 1fr;
-      }
     }
   `;
 }
