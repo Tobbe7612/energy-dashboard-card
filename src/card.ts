@@ -727,49 +727,51 @@ export class EnergyDashboardCard extends LitElement {
 
     return html`
       <section class="kpi-section">
-        <div class="section-title">SENASTE 24 TIMMARNA</div>
+        <div class="section-title">NYCKELTAL – SENASTE 24H</div>
 
         <div class="kpi-grid">
-          <div class="kpi">
-            <div class="kpi-label">Importkostnad</div>
+          <div class="kpi-summary">
+            <div class="kpi">
+              <div class="kpi-label">Importkostnad</div>
 
-            <div class="kpi-value">
-              ${this.formatNumber(house.cost, 2)}
-              <span>kr</span>
+              <div class="kpi-value">
+                ${this.formatNumber(house.cost, 2)}
+                <span>kr</span>
+              </div>
+
+              <div class="kpi-meta">
+                Total importkostnad
+              </div>
             </div>
 
-            <div class="kpi-meta">
-              Total importkostnad
+            <div class="kpi">
+              <div class="kpi-label">Förbrukning</div>
+
+              <div class="kpi-value">
+                ${this.formatNumber(house.consumption_kwh, 2)}
+                <span>kWh</span>
+              </div>
+
+              <div class="kpi-meta">
+                Husets totala förbrukning
+              </div>
+            </div>
+
+            <div class="kpi">
+              <div class="kpi-label">Under medianpris</div>
+
+              <div class="kpi-value">
+                ${this.formatNumber(house.cheap_usage_percent, 1)}
+                <span>%</span>
+              </div>
+
+              <div class="kpi-meta">
+                Av energiförbrukningen
+              </div>
             </div>
           </div>
 
-          <div class="kpi">
-            <div class="kpi-label">Förbrukning</div>
-
-            <div class="kpi-value">
-              ${this.formatNumber(house.consumption_kwh, 2)}
-              <span>kWh</span>
-            </div>
-
-            <div class="kpi-meta">
-              Husets totala förbrukning
-            </div>
-          </div>
-
-          <div class="kpi">
-            <div class="kpi-label">Under medianpris</div>
-
-            <div class="kpi-value">
-              ${this.formatNumber(house.cheap_usage_percent, 1)}
-              <span>%</span>
-            </div>
-
-            <div class="kpi-meta">
-              Av energiförbrukningen
-            </div>
-          </div>
-
-          <div class="kpi">
+          <div class="kpi kpi-next-period">
             <div class="kpi-label">Nästa billiga period</div>
 
             <div class="kpi-value kpi-time">
@@ -1527,6 +1529,14 @@ export class EnergyDashboardCard extends LitElement {
       gap: 12px;
     }
 
+    .kpi-summary {
+      display: grid;
+      gap: 12px;
+      grid-column: span 3;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      min-width: 0;
+    }
+
     .kpi {
       min-width: 0;
       padding: 14px;
@@ -1545,6 +1555,7 @@ export class EnergyDashboardCard extends LitElement {
       font-size: 22px;
       font-weight: 650;
       line-height: 1.15;
+      min-width: 0;
       white-space: nowrap;
     }
 
@@ -1795,7 +1806,31 @@ export class EnergyDashboardCard extends LitElement {
 
     @container dashboard-card (max-width: 700px) {
       .kpi-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .kpi-summary {
+        border: 1px solid var(--divider-color);
+        border-radius: 12px;
+        gap: 0;
+        grid-column: auto;
+        grid-template-columns: minmax(0, 1fr);
+        overflow: hidden;
+      }
+
+      .kpi-summary .kpi {
+        border: 0;
+        border-radius: 0;
+        border-bottom: 1px solid var(--divider-color);
+      }
+
+      .kpi-summary .kpi:last-child {
+        border-bottom: 0;
+      }
+
+      .kpi-value {
+        white-space: normal;
+        overflow-wrap: anywhere;
       }
     }
 
@@ -1808,13 +1843,6 @@ export class EnergyDashboardCard extends LitElement {
       .consumer-average-price-column {
         display: none;
       }
-    }
-
-    @media (max-width: 700px) {
-      .kpi-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-
     }
 
     @media (max-width: 500px) {
