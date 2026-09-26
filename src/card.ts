@@ -844,6 +844,13 @@ export class EnergyDashboardCard extends LitElement {
       <section class="consumers-section">
         <div class="section-title">FÖRBRUKNING PER ENHET</div>
 
+        <div class="consumer-list-header" aria-hidden="true">
+          <div>Enhet</div>
+          <div>Förbrukning</div>
+          <div>Andel</div>
+          <div class="consumer-average-price-column">Snittpris</div>
+        </div>
+
         <div class="consumer-list">
           ${consumers.map((consumer) =>
             this.renderConsumer(consumer),
@@ -862,101 +869,32 @@ export class EnergyDashboardCard extends LitElement {
 
     return html`
       <div class="consumer">
-        <div class="consumer-main">
-          <div class="consumer-name">
-            ${name}
-          </div>
+        <div class="consumer-name">${name}</div>
 
-          <div class="consumer-entity">
-            ${consumer.energy_entity}
-          </div>
+        <div class="consumer-metric-value">
+          ${hasConsumption
+            ? html`
+                ${this.formatNumber(analysis.energy_kwh, 2)}
+                <span>kWh</span>
+              `
+            : html`
+                <span class="muted-value">Ingen förbrukning</span>
+              `}
         </div>
 
-        <div class="consumer-metrics">
-          <div class="consumer-metric">
-            <div class="consumer-metric-label">Energi</div>
-
-            <div class="consumer-metric-value">
-              ${hasConsumption
-                ? html`
-                    ${this.formatNumber(analysis.energy_kwh, 2)}
-                    <span>kWh</span>
-                  `
-                : html`
-                    <span class="muted-value">
-                      Ingen förbrukning
-                    </span>
-                  `}
-            </div>
-          </div>
-
-          <div class="consumer-metric">
-            <div class="consumer-metric-label">Andel</div>
-
-            <div class="consumer-metric-value">
-              ${this.formatNumber(analysis.share_percent, 1)}
-              <span>%</span>
-            </div>
-          </div>
-
-          <div class="consumer-metric">
-            <div class="consumer-metric-label">Kostnad</div>
-
-            <div class="consumer-metric-value">
-              ${hasConsumption
-                ? html`
-                    ${this.formatNumber(analysis.cost, 2)}
-                    <span>kr</span>
-                  `
-                : html`
-                    <span class="muted-value">—</span>
-                  `}
-            </div>
-          </div>
-
-          <div class="consumer-metric">
-            <div class="consumer-metric-label">
-              Snittpris
-            </div>
-
-            <div class="consumer-metric-value">
-              ${analysis.average_import_price !== null
-                ? html`
-                    ${this.formatPrice(
-                      analysis.average_import_price,
-                    )}
-                    <span>kr/kWh</span>
-                  `
-                : html`
-                    <span class="muted-value">—</span>
-                  `}
-            </div>
-          </div>
+        <div class="consumer-metric-value">
+          ${this.formatNumber(analysis.share_percent, 1)}
+          <span>%</span>
         </div>
 
-        ${analysis.price_alignment_delta !== null
-          ? html`
-              <div class="consumer-price-alignment">
-                ${analysis.price_alignment_delta > 0
-                  ? html`
-                      ${this.formatNumber(
-                        analysis.price_alignment_delta,
-                        2,
-                      )} kr/kWh billigare än huset
-                    `
-                  : analysis.price_alignment_delta < 0
-                    ? html`
-                        ${this.formatNumber(
-                          Math.abs(analysis.price_alignment_delta),
-                          2,
-                        )} kr/kWh dyrare än huset
-                      `
-                    : html`
-                        Samma pris som huset
-                      `}
-              </div>
-            `
-          : html``}
+        <div class="consumer-metric-value consumer-average-price-column">
+          ${analysis.average_import_price !== null
+            ? html`
+                ${this.formatPrice(analysis.average_import_price)}
+                <span>kr/kWh</span>
+              `
+            : html`<span class="muted-value">—</span>`}
+        </div>
       </div>
     `;
   }
@@ -1688,62 +1626,47 @@ export class EnergyDashboardCard extends LitElement {
 
     .consumer-list {
       display: grid;
-      gap: 10px;
+      min-width: 0;
+    }
+
+    .consumer-list-header,
+    .consumer {
+      align-items: center;
+      column-gap: 10px;
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 0.7fr) minmax(0, 1.1fr);
+      min-width: 0;
+    }
+
+    .consumer-list-header {
+      color: var(--secondary-text-color);
+      font-size: 10px;
+      font-weight: 600;
+      padding: 0 0 8px;
     }
 
     .consumer {
-      border: 1px solid var(--divider-color);
-      border-radius: 12px;
-      padding: 14px;
-    }
-
-    .consumer-main {
-      margin-bottom: 13px;
+      border-top: 1px solid var(--divider-color);
+      padding: 10px 0;
     }
 
     .consumer-name {
-      font-size: 15px;
-      font-weight: 650;
-    }
-
-    .consumer-entity {
-      color: var(--secondary-text-color);
-      font-size: 10px;
-      margin-top: 3px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .consumer-metrics {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 10px;
-    }
-
-    .consumer-metric-label {
-      color: var(--secondary-text-color);
-      font-size: 10px;
-      margin-bottom: 4px;
+      font-size: 13px;
+      font-weight: 600;
+      min-width: 0;
     }
 
     .consumer-metric-value {
-      font-size: 15px;
-      font-weight: 600;
-      white-space: nowrap;
+      font-size: 13px;
+      font-weight: 550;
+      min-width: 0;
+      overflow-wrap: anywhere;
     }
 
     .consumer-metric-value span {
       color: var(--secondary-text-color);
       font-size: 10px;
       font-weight: 500;
-    }
-
-    .consumer-price-alignment {
-      margin-top: 10px;
-      color: var(--secondary-text-color);
-      font-size: 11px;
-      line-height: 1.4;
     }
 
     .muted-value {
@@ -1870,21 +1793,22 @@ export class EnergyDashboardCard extends LitElement {
       .kpi-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
+    }
 
-      .consumer-metrics {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        row-gap: 12px;
+    @container dashboard-card (max-width: 520px) {
+      .consumer-list-header,
+      .consumer {
+        grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 0.7fr);
+      }
+
+      .consumer-average-price-column {
+        display: none;
       }
     }
 
     @media (max-width: 700px) {
       .kpi-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-
-      .consumer-metrics {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        row-gap: 12px;
       }
 
     }
