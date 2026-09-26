@@ -926,7 +926,7 @@ export class EnergyDashboardCard extends LitElement {
 
     return html`
       <section class="insights-section">
-        <div class="section-title">INSIKTER</div>
+        <div class="section-title">INSIGHTS – SENASTE 24H</div>
 
         <div class="insights-list">
           ${this.data.insights.map((insight) =>
@@ -994,13 +994,11 @@ export class EnergyDashboardCard extends LitElement {
                   insight.start,
                   insight.end,
                 )}
-                · ${this.formatNumber(insight.energy_kwh, 3)}
-                kWh · ${this.formatNumber(insight.cost, 2)}
-                kr
               </div>
 
               <div class="insight-meta">
-                Importpris
+                ${this.formatNumber(insight.energy_kwh, 3)} kWh ·
+                ${this.formatNumber(insight.cost, 2)} kr · Importpris
                 ${this.formatPrice(insight.import_price)}
                 kr/kWh
               </div>
@@ -1023,13 +1021,11 @@ export class EnergyDashboardCard extends LitElement {
                   insight.start,
                   insight.end,
                 )}
-                · ${this.formatNumber(insight.energy_kwh, 3)}
-                kWh · ${this.formatNumber(insight.cost, 2)}
-                kr
               </div>
 
               <div class="insight-meta">
-                Importpris
+                ${this.formatNumber(insight.energy_kwh, 3)} kWh ·
+                ${this.formatNumber(insight.cost, 2)} kr · Importpris
                 ${this.formatPrice(insight.import_price)}
                 kr/kWh
               </div>
@@ -1684,16 +1680,21 @@ export class EnergyDashboardCard extends LitElement {
 
     .insights-list {
       display: grid;
-      gap: 10px;
+      min-width: 0;
     }
 
     .insight {
       display: flex;
       align-items: flex-start;
       gap: 12px;
-      border: 1px solid var(--divider-color);
-      border-radius: 12px;
-      padding: 13px 14px;
+      border-top: 1px solid var(--divider-color);
+      min-width: 0;
+      padding: 12px 0;
+    }
+
+    .insight:first-child {
+      border-top: 0;
+      padding-top: 0;
     }
 
     .insight-icon {
@@ -1730,6 +1731,7 @@ export class EnergyDashboardCard extends LitElement {
     .insight-title {
       font-size: 14px;
       font-weight: 650;
+      overflow-wrap: anywhere;
     }
 
     .insight-text {
@@ -1737,12 +1739,14 @@ export class EnergyDashboardCard extends LitElement {
       font-size: 12px;
       line-height: 1.45;
       margin-top: 3px;
+      overflow-wrap: anywhere;
     }
 
     .insight-meta {
       color: var(--secondary-text-color);
       font-size: 10px;
       margin-top: 4px;
+      overflow-wrap: anywhere;
     }
 
     .loading {
