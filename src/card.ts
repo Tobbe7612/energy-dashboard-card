@@ -102,12 +102,14 @@ export class EnergyDashboardCard extends LitElement {
             ${this.renderPriceHeader()}
           </div>
 
-          <div class="dashboard-timeline">
-            ${this.renderTimelineSection()}
-          </div>
+          <div class="dashboard-timeline-prices">
+            <div class="dashboard-timeline">
+              ${this.renderTimelineSection()}
+            </div>
 
-          <div class="dashboard-upcoming">
-            ${this.renderUpcomingPricesSection()}
+            <div class="dashboard-upcoming">
+              ${this.renderUpcomingPricesSection()}
+            </div>
           </div>
 
           <div class="dashboard-kpi">
@@ -301,10 +303,10 @@ export class EnergyDashboardCard extends LitElement {
     if (!(end > start)) return undefined;
 
     const width = 1000;
-    const height = 300;
+    const height = 250;
     const plot = {
       left: 52,
-      right: 16,
+      right: 46,
       top: 18,
       bottom: 34,
     };
@@ -405,6 +407,42 @@ export class EnergyDashboardCard extends LitElement {
             x="${timeline.plot.left - 8}"
             y="${y + 3}"
             text-anchor="end"
+            fill="${secondary}"
+            font-size="10"
+          >${value.toFixed(1).replace(".", ",")}</text>
+        `;
+      })}
+
+      <line
+        x1="${timeline.width - timeline.plot.right}"
+        x2="${timeline.width - timeline.plot.right}"
+        y1="${timeline.plot.top}"
+        y2="${timeline.plot.top + timeline.plotHeight}"
+        stroke="${gridColor}"
+        stroke-width="1"
+        opacity="0.35"
+      ></line>
+
+      <text
+        x="${timeline.width - timeline.plot.right + 6}"
+        y="${timeline.plot.top - 7}"
+        text-anchor="start"
+        fill="${secondary}"
+        font-size="10"
+      >kWh</text>
+
+      ${yTicks.map((ratio) => {
+        const y =
+          timeline.plot.top +
+          timeline.plotHeight -
+          ratio * timeline.plotHeight;
+        const value = timeline.houseMax * ratio;
+
+        return svg`
+          <text
+            x="${timeline.width - timeline.plot.right + 6}"
+            y="${y + 3}"
+            text-anchor="start"
             fill="${secondary}"
             font-size="10"
           >${value.toFixed(1).replace(".", ",")}</text>
@@ -683,8 +721,7 @@ export class EnergyDashboardCard extends LitElement {
       .sort(
         (a, b) =>
           new Date(a.start).getTime() - new Date(b.start).getTime(),
-      )
-      .slice(0, 8);
+      );
 
     if (upcoming.length === 0) return html``;
 
@@ -693,22 +730,18 @@ export class EnergyDashboardCard extends LitElement {
         <div class="section-title">KOMMANDE PRISER (15 MINUTER)</div>
 
         <div class="upcoming-list" aria-label="Kommande importpriser">
-          ${upcoming.map(
-            (item) => html`
-              <div class="upcoming-price ${item.price_class.toLowerCase()}">
-                <div class="upcoming-time">
-                  ${this.formatInterval(item.start, item.end)}
-                </div>
-                <div class="upcoming-value">
-                  ${this.formatPrice(item.import)}
-                  <span>kr/kWh</span>
-                </div>
-                <div class="upcoming-class">
-                  ${this.getPriceClassShortLabel(item.price_class)}
-                </div>
-              </div>
-            `,
-          )}
+          ${upcoming.map((item) => {
+            const details = `${this.formatInterval(item.start, item.end)} · ${this.formatPrice(item.import)} kr/kWh import · ${this.getPriceClassShortLabel(item.price_class)}`;
+
+            return html`
+              <div
+                class="upcoming-price ${item.price_class.toLowerCase()}"
+                role="img"
+                aria-label="${details}"
+                title="${details}"
+              ></div>
+            `;
+          })}
         </div>
       </section>
     `;
@@ -1226,13 +1259,25 @@ export class EnergyDashboardCard extends LitElement {
     }
 
     .dashboard-overview,
-    .dashboard-timeline,
-    .dashboard-upcoming,
+    .dashboard-timeline-prices,
     .dashboard-kpi,
     .dashboard-smart-score,
     .dashboard-lower-grid {
       grid-column: 1 / -1;
       min-width: 0;
+    }
+
+    .dashboard-timeline,
+    .dashboard-upcoming {
+      min-width: 0;
+    }
+
+    .dashboard-timeline-prices {
+      border: 1px solid var(--divider-color);
+      border-radius: 12px;
+      grid-column: 1 / -1;
+      min-width: 0;
+      overflow: hidden;
     }
 
     .dashboard-lower-grid {
@@ -1372,8 +1417,7 @@ export class EnergyDashboardCard extends LitElement {
     /* TIMELINE */
 
     .timeline-section {
-      border-top: 1px solid var(--divider-color);
-      padding: 20px 22px 22px;
+      padding: 18px 20px 10px;
     }
 
     .timeline-heading {
@@ -1431,16 +1475,14 @@ export class EnergyDashboardCard extends LitElement {
     }
 
     .timeline-chart {
-      border: 1px solid var(--divider-color);
-      border-radius: 12px;
       overflow: hidden;
-      padding: 8px 8px 2px;
+      padding: 0;
     }
 
     .timeline-chart svg {
       display: block;
-      height: auto;
-      min-height: 230px;
+      height: clamp(150px, 20cqw, 220px);
+      min-height: 0;
       width: 100%;
     }
 
@@ -1457,59 +1499,46 @@ export class EnergyDashboardCard extends LitElement {
 
     .upcoming-section {
       border-top: 1px solid var(--divider-color);
-      padding: 20px 22px 22px;
+      padding: 12px 20px 16px;
     }
 
     .upcoming-list {
       display: grid;
-      grid-template-columns: repeat(8, minmax(110px, 1fr));
-      gap: 8px;
+      grid-auto-columns: 10px;
+      grid-auto-flow: column;
+      grid-template-columns: none;
+      gap: 2px;
       overflow-x: auto;
-      padding-bottom: 2px;
+      padding: 2px 1px 8px;
       scrollbar-width: thin;
     }
 
     .upcoming-price {
       box-sizing: border-box;
-      min-width: 110px;
-      padding: 11px 10px;
-      border: 1px solid var(--divider-color);
-      border-radius: 10px;
+      border-radius: 2px;
+      height: 26px;
+      min-width: 10px;
+      width: 10px;
     }
 
-    .upcoming-time {
-      color: var(--secondary-text-color);
-      font-size: 10px;
-      white-space: nowrap;
+    .upcoming-price.very_cheap {
+      background: color-mix(in srgb, var(--success-color) 85%, var(--primary-background-color));
     }
 
-    .upcoming-value {
-      font-size: 17px;
-      font-weight: 650;
-      margin-top: 5px;
-      white-space: nowrap;
-    }
-
-    .upcoming-value span {
-      color: var(--secondary-text-color);
-      font-size: 9px;
-      font-weight: 500;
-    }
-
-    .upcoming-class {
-      color: var(--secondary-text-color);
-      font-size: 9px;
-      margin-top: 3px;
-    }
-
-    .upcoming-price.very_cheap,
     .upcoming-price.cheap {
-      border-color: color-mix(in srgb, var(--success-color) 45%, var(--divider-color));
+      background: color-mix(in srgb, var(--success-color) 55%, var(--primary-background-color));
     }
 
-    .upcoming-price.expensive,
+    .upcoming-price.normal {
+      background: color-mix(in srgb, var(--secondary-text-color) 35%, var(--primary-background-color));
+    }
+
+    .upcoming-price.expensive {
+      background: color-mix(in srgb, var(--warning-color) 65%, var(--primary-background-color));
+    }
+
     .upcoming-price.very_expensive {
-      border-color: color-mix(in srgb, var(--warning-color) 45%, var(--divider-color));
+      background: color-mix(in srgb, var(--error-color) 85%, var(--primary-background-color));
     }
 
     /* KPI */
@@ -1781,8 +1810,12 @@ export class EnergyDashboardCard extends LitElement {
     }
 
     @container dashboard-card (max-width: 980px) {
-      .upcoming-list {
-        grid-template-columns: repeat(8, 118px);
+      .timeline-section {
+        padding: 16px 16px 8px;
+      }
+
+      .upcoming-section {
+        padding: 10px 16px 14px;
       }
     }
 
@@ -1801,6 +1834,22 @@ export class EnergyDashboardCard extends LitElement {
     @container dashboard-card (max-width: 860px) {
       .dashboard-lower-grid {
         grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
+    @container dashboard-card (max-width: 700px) {
+      .timeline-heading {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .timeline-legend {
+        justify-content: flex-start;
+      }
+
+      .timeline-chart svg text {
+        font-size: 15px;
       }
     }
 
@@ -1867,25 +1916,11 @@ export class EnergyDashboardCard extends LitElement {
         font-size: 15px;
       }
 
-      .timeline-section,
       .kpi-section,
       .smart-score-section,
       .consumers-section,
       .insights-section {
         padding: 18px;
-      }
-
-      .timeline-heading {
-        align-items: flex-start;
-        flex-direction: column;
-      }
-
-      .timeline-legend {
-        justify-content: flex-start;
-      }
-
-      .timeline-chart svg {
-        min-height: 210px;
       }
 
       .kpi-grid {
