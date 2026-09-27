@@ -116,10 +116,6 @@ export class EnergyDashboardCard extends LitElement {
             </div>
           </div>
 
-          <div class="dashboard-kpi">
-            ${this.renderKpiSection()}
-          </div>
-
           <div class="dashboard-lower-grid">
             <div class="dashboard-consumers">
               ${this.renderConsumersSection()}
@@ -147,21 +143,30 @@ export class EnergyDashboardCard extends LitElement {
 
     const priceClass = this.getPriceClassLabel(current.price_class);
     const priceClassKey = current.price_class.toLowerCase();
+    const pqi = intelligence.price_quality_index;
+    const gaugeAngle = 135 + (100 - pqi) * 2.7;
 
     return html`
       <section class="price-header">
         <div class="overview-layout">
-          <div class="current-price-card">
+          <div class="current-price-card ${priceClassKey}">
             <div class="eyebrow">IMPORTPRIS JUST NU</div>
 
-            <div class="current-price-row">
-              <div class="current-price">
-                ${this.formatPrice(current.import)}
-                <span class="unit">kr/kWh</span>
-              </div>
+            <div class="price-gauge" style="--pqi-angle: ${gaugeAngle}deg">
+              <div class="price-gauge-ring" aria-hidden="true"></div>
+              <div class="price-gauge-marker" aria-hidden="true"></div>
 
-              <div class="price-status ${priceClassKey}">
-                <div class="status-label">${priceClass}</div>
+              <div class="price-gauge-center">
+                <div class="current-price-row">
+                  <div class="current-price">
+                    ${this.formatPrice(current.import)}
+                    <span class="unit">kr/kWh</span>
+                  </div>
+
+                  <div class="price-status ${priceClassKey}">
+                    <div class="status-label">${priceClass}</div>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -170,34 +175,38 @@ export class EnergyDashboardCard extends LitElement {
             </div>
           </div>
 
-          <div class="price-stats">
-            <div class="stat">
-              <div class="stat-label">Lägsta importpris idag</div>
-              <div class="stat-value">
-                ${this.formatPrice(statistics.lowest_import_price)}
+          <div class="overview-support">
+            <div class="price-quality-summary">
+              <div class="pqi-label">PRISINDEX (PQI)</div>
+              <div class="pqi-value">
+                ${this.formatNumber(intelligence.price_quality_index, 0)}<span>/100</span>
               </div>
             </div>
 
-            <div class="stat">
-              <div class="stat-label">Högsta importpris idag</div>
-              <div class="stat-value">
-                ${this.formatPrice(statistics.highest_import_price)}
+            <div class="price-stats">
+              <div class="stat">
+                <div class="stat-label">Lägsta</div>
+                <div class="stat-value">
+                  ${this.formatPrice(statistics.lowest_import_price)}
+                </div>
+              </div>
+
+              <div class="stat">
+                <div class="stat-label">Snitt</div>
+                <div class="stat-value">
+                  ${this.formatPrice(statistics.average_import_price)}
+                </div>
+              </div>
+
+              <div class="stat">
+                <div class="stat-label">Högsta</div>
+                <div class="stat-value">
+                  ${this.formatPrice(statistics.highest_import_price)}
+                </div>
               </div>
             </div>
 
-            <div class="stat">
-              <div class="stat-label">Snitt importpris idag</div>
-              <div class="stat-value">
-                ${this.formatPrice(statistics.average_import_price)}
-              </div>
-            </div>
-
-            <div class="stat">
-              <div class="stat-label">Prisindex (PQI)</div>
-              <div class="stat-value">
-                ${this.formatNumber(intelligence.price_quality_index, 0)}/100
-              </div>
-            </div>
+            ${this.renderKpiSection()}
           </div>
         </div>
       </section>
@@ -507,7 +516,7 @@ export class EnergyDashboardCard extends LitElement {
           width="${width}"
           height="${Math.max(1, height)}"
           rx="1"
-          fill="var(--primary-color)"
+          fill="var(--energy-accent-cool)"
           opacity="0.22"
         >
           <title>
@@ -578,7 +587,7 @@ export class EnergyDashboardCard extends LitElement {
           <path
             d="${path}"
             fill="none"
-            stroke="var(--primary-color)"
+            stroke="var(--energy-accent-cool)"
             stroke-width="2.5"
             stroke-linecap="round"
             stroke-linejoin="round"
@@ -599,6 +608,7 @@ export class EnergyDashboardCard extends LitElement {
         ),
         end: new Date(item.end).getTime(),
         import: item.import,
+        price_class: item.price_class,
       }))
       .filter(
         (item) =>
@@ -610,24 +620,27 @@ export class EnergyDashboardCard extends LitElement {
 
     if (!future.length) return svg``;
 
-    const path = future
-      .map((point, index) => {
-        const x = timeline.x(point.start);
-        const y = timeline.yImport(point.import);
-        return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
-      })
-      .join(" ");
-
     return svg`
-      <path
-        d="${path}"
-        fill="none"
-        stroke="var(--warning-color)"
-        stroke-width="2.5"
-        stroke-dasharray="6 5"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      ></path>
+      ${future.slice(0, -1).map((point, index) => {
+        const next = future[index + 1];
+        const x1 = timeline.x(point.start);
+        const y1 = timeline.yImport(point.import);
+        const x2 = timeline.x(next.start);
+        const y2 = timeline.yImport(next.import);
+        const path = `M ${x1.toFixed(2)} ${y1.toFixed(2)} L ${x2.toFixed(2)} ${y2.toFixed(2)}`;
+
+        return svg`
+          <path
+            class="forecast-price-segment ${point.price_class.toLowerCase()}"
+            d="${path}"
+            fill="none"
+            stroke-width="2.5"
+            stroke-dasharray="6 5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          ></path>
+        `;
+      })}
     `;
   }
 
@@ -642,18 +655,20 @@ export class EnergyDashboardCard extends LitElement {
         x2="${x}"
         y1="${timeline.plot.top - 4}"
         y2="${timeline.plot.top + timeline.plotHeight}"
-        stroke="var(--primary-text-color)"
-        stroke-width="1.5"
+        class="timeline-now-line"
+        stroke="var(--energy-accent-cool)"
+        stroke-width="2"
         stroke-dasharray="3 4"
         opacity="0.85"
       ></line>
       <rect
+        class="timeline-now-label"
         x="${x - 18}"
         y="0"
         width="36"
         height="18"
         rx="9"
-        fill="var(--primary-text-color)"
+        fill="var(--energy-accent-cool)"
       ></rect>
       <text
         x="${x}"
@@ -761,73 +776,53 @@ export class EnergyDashboardCard extends LitElement {
       this.data.price_intelligence.cheapest_future_period;
 
     return html`
-      <section class="kpi-section">
-        <div class="section-title">NYCKELTAL – SENASTE 24H</div>
-
-        <div class="kpi-grid">
-          <div class="kpi-summary">
-            <div class="kpi">
-              <div class="kpi-label">Importkostnad</div>
-
-              <div class="kpi-value">
-                ${this.formatNumber(house.cost, 2)}
-                <span>kr</span>
-              </div>
-
-              <div class="kpi-meta">
-                Total importkostnad
-              </div>
-            </div>
-
-            <div class="kpi">
-              <div class="kpi-label">Förbrukning</div>
-
-              <div class="kpi-value">
-                ${this.formatNumber(house.consumption_kwh, 2)}
-                <span>kWh</span>
-              </div>
-
-              <div class="kpi-meta">
-                Husets totala förbrukning
-              </div>
-            </div>
-
-            <div class="kpi">
-              <div class="kpi-label">Under medianpris</div>
-
-              <div class="kpi-value">
-                ${this.formatNumber(house.cheap_usage_percent, 1)}
-                <span>%</span>
-              </div>
-
-              <div class="kpi-meta">
-                Av energiförbrukningen
-              </div>
-            </div>
+      <div class="overview-kpis" aria-label="Nyckeltal – senaste 24 timmarna">
+        <div class="overview-kpi">
+          <div class="kpi-label">Importkostnad</div>
+          <div class="kpi-value">
+            ${this.formatNumber(house.cost, 2)}
+            <span>kr</span>
           </div>
+          <div class="kpi-meta">Total importkostnad</div>
+        </div>
 
-          <div class="kpi kpi-next-period">
-            <div class="kpi-label">Nästa billiga period</div>
+        <div class="overview-kpi">
+          <div class="kpi-label">Förbrukning</div>
+          <div class="kpi-value">
+            ${this.formatNumber(house.consumption_kwh, 2)}
+            <span>kWh</span>
+          </div>
+          <div class="kpi-meta">Husets totala förbrukning</div>
+        </div>
 
-            <div class="kpi-value kpi-time">
-              ${cheapest
-                ? this.formatInterval(
-                    cheapest.start,
-                    cheapest.end,
-                  )
-                : "—"}
-            </div>
+        <div class="overview-kpi">
+          <div class="kpi-label">Under medianpris</div>
+          <div class="kpi-value">
+            ${this.formatNumber(house.cheap_usage_percent, 1)}
+            <span>%</span>
+          </div>
+          <div class="kpi-meta">Av energiförbrukningen</div>
+        </div>
 
-            <div class="kpi-meta">
-              ${cheapest
-                ? `${this.formatPrice(
-                    cheapest.average_import_price,
-                  )} kr/kWh import`
-                : "Ingen period tillgänglig"}
-            </div>
+        <div class="overview-kpi">
+          <div class="kpi-label">Nästa billiga period</div>
+          <div class="kpi-value kpi-time">
+            ${cheapest
+              ? this.formatInterval(
+                  cheapest.start,
+                  cheapest.end,
+                )
+              : "—"}
+          </div>
+          <div class="kpi-meta">
+            ${cheapest
+              ? `${this.formatPrice(
+                  cheapest.average_import_price,
+                )} kr/kWh import`
+              : "Ingen period tillgänglig"}
           </div>
         </div>
-      </section>
+      </div>
     `;
   }
 
@@ -942,23 +937,23 @@ export class EnergyDashboardCard extends LitElement {
             ? html`<span class="muted-value">Prisjämförelse saknas</span>`
             : analysis.price_alignment_delta > 0
               ? html`
-                  <span>
+                  <span class="consumer-price-cheaper">
                     ${this.formatNumber(
                       analysis.price_alignment_delta,
                       2,
                     )} kr/kWh billigare än huset
                   </span>
-                `
+              `
               : analysis.price_alignment_delta < 0
                 ? html`
-                    <span>
+                    <span class="consumer-price-costlier">
                       ${this.formatNumber(
                         Math.abs(analysis.price_alignment_delta),
                         2,
                       )} kr/kWh dyrare än huset
                     </span>
                   `
-                : html`<span>Samma snittpris som huset</span>`}
+                : html`<span class="consumer-price-equal">Samma snittpris som huset</span>`}
           <span class="consumer-detail-separator consumer-mobile-average-separator">·</span>
           <span class="consumer-mobile-average-price">
             Snittpris
@@ -1062,7 +1057,7 @@ export class EnergyDashboardCard extends LitElement {
 
       case "highest_cost_period":
         return html`
-          <div class="insight insight-warning">
+          <div class="insight insight-danger">
             <div class="insight-icon">!</div>
 
             <div class="insight-content">
@@ -1289,10 +1284,38 @@ export class EnergyDashboardCard extends LitElement {
   static styles = css`
     :host {
       display: block;
+      --energy-background: #0b1420;
+      --energy-surface: #111e2c;
+      --energy-panel: rgba(20, 35, 51, 0.78);
+      --energy-border: rgba(145, 176, 203, 0.18);
+      --energy-text: #eaf2fa;
+      --energy-muted: #9eb1c3;
+      --energy-price-cheap: #43c982;
+      --energy-price-normal: #e5c15b;
+      --energy-price-expensive: #f09a4a;
+      --energy-price-very-expensive: #f0646b;
+      --energy-accent-cool: #43c4e5;
     }
 
     ha-card {
+      background:
+        radial-gradient(circle at 100% 0%, rgba(67, 196, 229, 0.08), transparent 38%),
+        linear-gradient(145deg, var(--energy-background), var(--energy-surface));
+      border: 1px solid var(--energy-border);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22);
+      color: var(--energy-text);
       overflow: hidden;
+      --primary-text-color: var(--energy-text);
+      --secondary-text-color: var(--energy-muted);
+      --divider-color: var(--energy-border);
+      --primary-background-color: var(--energy-background);
+      --card-background-color: var(--energy-panel);
+      --ha-card-background: var(--energy-background);
+      --primary-color: var(--energy-accent-cool);
+      --info-color: var(--energy-accent-cool);
+      --success-color: var(--energy-price-cheap);
+      --warning-color: var(--energy-price-expensive);
+      --error-color: var(--energy-price-very-expensive);
     }
 
     .dashboard-layout {
@@ -1306,7 +1329,6 @@ export class EnergyDashboardCard extends LitElement {
 
     .dashboard-overview,
     .dashboard-timeline-prices,
-    .dashboard-kpi,
     .dashboard-smart-score,
     .dashboard-lower-grid {
       grid-column: 1 / -1;
@@ -1319,6 +1341,7 @@ export class EnergyDashboardCard extends LitElement {
     }
 
     .dashboard-timeline-prices {
+      background: var(--energy-panel);
       border: 1px solid var(--divider-color);
       border-radius: 12px;
       grid-column: 1 / -1;
@@ -1334,6 +1357,9 @@ export class EnergyDashboardCard extends LitElement {
 
     .dashboard-consumers,
     .dashboard-insights {
+      background: var(--energy-panel);
+      border: 1px solid var(--energy-border);
+      border-radius: 12px;
       display: flex;
       flex-direction: column;
       min-width: 0;
@@ -1354,31 +1380,120 @@ export class EnergyDashboardCard extends LitElement {
     }
 
     .price-header {
-      padding: 22px;
+      background: var(--energy-panel);
+      border: 1px solid var(--energy-border);
+      border-radius: 12px;
+      padding: 14px;
     }
 
     .overview-layout {
       display: grid;
       grid-template-columns: minmax(240px, 0.42fr) minmax(0, 1fr);
-      gap: 12px;
+      gap: 14px;
       min-width: 0;
     }
 
+    .overview-support {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      justify-content: space-evenly;
+      min-width: 0;
+      padding: 4px 8px;
+    }
+
+    .price-quality-summary {
+      align-items: baseline;
+      border-bottom: 1px solid var(--energy-border);
+      display: flex;
+      gap: 12px;
+      justify-content: space-between;
+      min-width: 0;
+      padding: 2px 2px 10px;
+    }
+
+    .pqi-label {
+      color: var(--energy-muted);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      min-width: 0;
+      text-transform: uppercase;
+    }
+
+    .pqi-value {
+      color: var(--energy-accent-cool);
+      font-size: 25px;
+      font-weight: 700;
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    .pqi-value span {
+      font-size: 14px;
+      font-weight: 600;
+    }
+
     .current-price-card {
+      --current-price-accent: var(--energy-price-normal);
       align-items: flex-start;
+      background: linear-gradient(
+        145deg,
+        color-mix(in srgb, var(--energy-panel) 92%, var(--current-price-accent)),
+        var(--energy-surface) 78%
+      );
+      border: 1px solid color-mix(in srgb, var(--current-price-accent) 30%, var(--divider-color));
+      border-radius: 12px;
+      box-shadow: 0 0 18px color-mix(in srgb, var(--current-price-accent) 7%, transparent);
       display: flex;
       flex-direction: column;
       min-width: 0;
       padding: 14px;
-      border: 1px solid var(--divider-color);
-      border-radius: 12px;
+    }
+
+    .current-price-card.very_cheap,
+    .current-price-card.cheap {
+      --current-price-accent: var(--energy-price-cheap);
+    }
+
+    .current-price-card.expensive {
+      --current-price-accent: var(--energy-price-expensive);
+    }
+
+    .current-price-card.very_expensive {
+      --current-price-accent: var(--energy-price-very-expensive);
     }
 
     .price-stats {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 12px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       min-width: 0;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--energy-border);
+    }
+
+    .price-stats .stat {
+      background: transparent;
+      border: 0;
+      border-radius: 0;
+      min-width: 0;
+      padding: 4px 10px;
+    }
+
+    .price-stats .stat + .stat {
+      border-left: 1px solid var(--energy-border);
+    }
+
+    .price-stats .stat:first-child {
+      padding-left: 2px;
+    }
+
+    .price-stats .stat:last-child {
+      padding-right: 2px;
+    }
+
+    .price-stats .stat-label {
+      margin-bottom: 4px;
     }
 
     .eyebrow,
@@ -1410,6 +1525,92 @@ export class EnergyDashboardCard extends LitElement {
       max-width: 100%;
     }
 
+    .price-gauge {
+      align-self: center;
+      display: grid;
+      height: 164px;
+      max-width: 100%;
+      place-items: center;
+      position: relative;
+      width: 164px;
+    }
+
+    .price-gauge-ring {
+      background: conic-gradient(
+        from 135deg,
+        var(--energy-price-cheap) 0deg,
+        var(--energy-price-normal) 90deg,
+        var(--energy-price-expensive) 180deg,
+        var(--energy-price-very-expensive) 270deg,
+        transparent 270deg 360deg
+      );
+      border-radius: 50%;
+      filter: drop-shadow(0 2px 7px color-mix(in srgb, var(--current-price-accent) 24%, transparent));
+      inset: 0;
+      mask: radial-gradient(farthest-side, transparent calc(100% - 11px), #000 calc(100% - 9px));
+      position: absolute;
+      -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 11px), #000 calc(100% - 9px));
+    }
+
+    .price-gauge-marker {
+      inset: 0;
+      pointer-events: none;
+      position: absolute;
+      transform: rotate(var(--pqi-angle));
+    }
+
+    .price-gauge-marker::after {
+      background: var(--current-price-accent);
+      border: 2px solid var(--ha-card-background, var(--primary-background-color));
+      border-radius: 50%;
+      box-shadow: 0 0 8px color-mix(in srgb, var(--current-price-accent) 50%, transparent);
+      content: "";
+      height: 10px;
+      left: 50%;
+      position: absolute;
+      top: 5px;
+      transform: translateX(-50%);
+      width: 10px;
+    }
+
+    .price-gauge-center {
+      align-items: center;
+      display: flex;
+      inset: 18px;
+      justify-content: center;
+      position: absolute;
+      text-align: center;
+    }
+
+    .price-gauge-center .current-price-row {
+      align-items: center;
+      flex-direction: column;
+      gap: 4px;
+      justify-content: center;
+    }
+
+    .price-gauge-center .current-price {
+      font-size: 27px;
+    }
+
+    .price-gauge-center .current-price .unit {
+      font-size: 11px;
+      margin-left: 1px;
+    }
+
+    .price-gauge-center .price-status {
+      align-self: center;
+      background: color-mix(in srgb, var(--current-price-accent) 8%, transparent);
+      border-color: color-mix(in srgb, var(--current-price-accent) 38%, var(--divider-color));
+      min-width: 120px;
+      padding: 6px 8px;
+      text-align: center;
+    }
+
+    .price-gauge-center .status-label {
+      font-size: 12px;
+    }
+
     .current-price .unit {
       color: var(--secondary-text-color);
       font-size: 14px;
@@ -1424,16 +1625,22 @@ export class EnergyDashboardCard extends LitElement {
       margin-top: 7px;
     }
 
+    .current-price-card .current-time {
+      align-self: center;
+      text-align: center;
+    }
+
     .price-status {
       min-width: 120px;
       max-width: 100%;
       box-sizing: border-box;
       padding: 10px 12px;
-      border: 1px solid var(--divider-color);
+      border: 1px solid color-mix(in srgb, var(--current-price-accent) 38%, var(--divider-color));
       border-radius: 12px;
       text-align: right;
       align-self: flex-start;
       margin-top: 14px;
+      background: color-mix(in srgb, var(--current-price-accent) 8%, transparent);
     }
 
     .current-price-row .price-status {
@@ -1448,22 +1655,23 @@ export class EnergyDashboardCard extends LitElement {
 
     .very_cheap .status-label,
     .cheap .status-label {
-      color: var(--success-color);
+      color: var(--energy-price-cheap);
     }
 
     .normal .status-label {
-      color: var(--primary-text-color);
+      color: var(--energy-price-normal);
     }
 
     .expensive .status-label {
-      color: var(--warning-color);
+      color: var(--energy-price-expensive);
     }
 
     .very_expensive .status-label {
-      color: var(--error-color);
+      color: var(--energy-price-very-expensive);
     }
 
     .stat {
+      background: var(--energy-panel);
       box-sizing: border-box;
       min-width: 0;
       padding: 12px;
@@ -1526,15 +1734,39 @@ export class EnergyDashboardCard extends LitElement {
     }
 
     .legend-line.history {
-      border-top: 2px solid var(--primary-color);
+      border-top: 2px solid var(--energy-accent-cool);
     }
 
     .legend-line.future {
-      border-top: 2px dashed var(--warning-color);
+      border-top: 2px dashed var(--energy-muted);
+    }
+
+    .forecast-price-segment {
+      stroke: var(--energy-price-normal);
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 2.5px;
+    }
+
+    .forecast-price-segment.very_cheap,
+    .forecast-price-segment.cheap {
+      stroke: var(--energy-price-cheap);
+    }
+
+    .forecast-price-segment.normal {
+      stroke: var(--energy-price-normal);
+    }
+
+    .forecast-price-segment.expensive {
+      stroke: var(--energy-price-expensive);
+    }
+
+    .forecast-price-segment.very_expensive {
+      stroke: var(--energy-price-very-expensive);
     }
 
     .legend-bar {
-      background: var(--primary-color);
+      background: var(--energy-accent-cool);
       border-radius: 1px;
       display: inline-block;
       height: 8px;
@@ -1543,8 +1775,22 @@ export class EnergyDashboardCard extends LitElement {
     }
 
     .timeline-chart {
+      background: linear-gradient(
+        to top,
+        color-mix(in srgb, var(--energy-price-cheap) 6%, transparent),
+        color-mix(in srgb, var(--energy-price-normal) 4%, transparent) 52%,
+        color-mix(in srgb, var(--energy-price-expensive) 6%, transparent)
+      );
       overflow: hidden;
       padding: 0;
+    }
+
+    .timeline-now-line {
+      filter: drop-shadow(0 0 3px color-mix(in srgb, var(--energy-accent-cool) 55%, transparent));
+    }
+
+    .timeline-now-label {
+      filter: drop-shadow(0 0 4px color-mix(in srgb, var(--energy-accent-cool) 45%, transparent));
     }
 
     .timeline-chart svg {
@@ -1583,6 +1829,7 @@ export class EnergyDashboardCard extends LitElement {
 
     .upcoming-price {
       box-sizing: border-box;
+      border: 1px solid color-mix(in srgb, var(--energy-border) 70%, transparent);
       border-radius: 2px;
       height: 26px;
       min-width: 10px;
@@ -1590,70 +1837,78 @@ export class EnergyDashboardCard extends LitElement {
     }
 
     .upcoming-price.very_cheap {
-      background: color-mix(in srgb, var(--success-color) 85%, var(--primary-background-color));
+      background: color-mix(in srgb, var(--energy-price-cheap) 36%, var(--energy-panel));
+      border-color: color-mix(in srgb, var(--energy-price-cheap) 38%, var(--energy-border));
     }
 
     .upcoming-price.cheap {
-      background: color-mix(in srgb, var(--success-color) 55%, var(--primary-background-color));
+      background: color-mix(in srgb, var(--energy-price-cheap) 27%, var(--energy-panel));
+      border-color: color-mix(in srgb, var(--energy-price-cheap) 28%, var(--energy-border));
     }
 
     .upcoming-price.normal {
-      background: color-mix(in srgb, var(--secondary-text-color) 35%, var(--primary-background-color));
+      background: color-mix(in srgb, var(--energy-price-normal) 23%, var(--energy-panel));
+      border-color: color-mix(in srgb, var(--energy-price-normal) 24%, var(--energy-border));
     }
 
     .upcoming-price.expensive {
-      background: color-mix(in srgb, var(--warning-color) 65%, var(--primary-background-color));
+      background: color-mix(in srgb, var(--energy-price-expensive) 31%, var(--energy-panel));
+      border-color: color-mix(in srgb, var(--energy-price-expensive) 32%, var(--energy-border));
     }
 
     .upcoming-price.very_expensive {
-      background: color-mix(in srgb, var(--error-color) 85%, var(--primary-background-color));
+      background: color-mix(in srgb, var(--energy-price-very-expensive) 40%, var(--energy-panel));
+      border-color: color-mix(in srgb, var(--energy-price-very-expensive) 40%, var(--energy-border));
     }
 
-    /* KPI */
-
-    .kpi-section {
-      border-top: 1px solid var(--divider-color);
-      padding: 20px 22px 22px;
-    }
+    /* OVERVIEW KPIS */
 
     .section-title {
       margin-bottom: 14px;
     }
 
-    .kpi-grid {
+    .overview-kpis {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 12px;
-    }
-
-    .kpi-summary {
-      display: grid;
-      gap: 12px;
-      grid-column: span 3;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       min-width: 0;
     }
 
-    .kpi {
+    .overview-kpi {
       min-width: 0;
-      padding: 14px;
-      border: 1px solid var(--divider-color);
-      border-radius: 12px;
+      padding: 6px 10px 8px;
+    }
+
+    .overview-kpi:nth-child(even) {
+      border-left: 1px solid var(--energy-border);
+    }
+
+    .overview-kpi:nth-child(n + 3) {
+      border-top: 1px solid var(--energy-border);
+      padding-top: 9px;
+    }
+
+    .overview-kpi:nth-child(odd) {
+      padding-left: 2px;
+    }
+
+    .overview-kpi:nth-child(even) {
+      padding-right: 2px;
     }
 
     .kpi-label {
-      color: var(--secondary-text-color);
+      color: var(--energy-muted);
       font-size: 11px;
       line-height: 1.3;
-      margin-bottom: 7px;
+      margin-bottom: 4px;
     }
 
     .kpi-value {
-      font-size: 22px;
+      font-size: 20px;
       font-weight: 650;
       line-height: 1.15;
       min-width: 0;
-      white-space: nowrap;
+      overflow-wrap: anywhere;
+      white-space: normal;
     }
 
     .kpi-value span {
@@ -1668,9 +1923,9 @@ export class EnergyDashboardCard extends LitElement {
 
     .kpi-meta {
       color: var(--secondary-text-color);
-      font-size: 10px;
+      font-size: 9px;
       line-height: 1.35;
-      margin-top: 6px;
+      margin-top: 3px;
     }
 
     /* SMART SCORE */
@@ -1681,13 +1936,15 @@ export class EnergyDashboardCard extends LitElement {
     }
 
     .smart-score-card {
+      background: var(--energy-panel);
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
       align-items: center;
       gap: 16px;
       padding: 10px 14px;
-      border: 1px solid var(--divider-color);
+      border: 1px solid color-mix(in srgb, var(--energy-accent-cool) 28%, var(--divider-color));
       border-radius: 12px;
+      box-shadow: 0 0 16px color-mix(in srgb, var(--energy-accent-cool) 7%, transparent);
     }
 
     .smart-score-main {
@@ -1699,6 +1956,7 @@ export class EnergyDashboardCard extends LitElement {
     }
 
     .smart-score-value {
+      color: var(--energy-accent-cool);
       font-size: 32px;
       font-weight: 700;
       line-height: 1.1;
@@ -1763,8 +2021,12 @@ export class EnergyDashboardCard extends LitElement {
     }
 
     .consumer {
-      border-top: 1px solid var(--divider-color);
+      border-top: 1px solid color-mix(in srgb, var(--energy-accent-cool) 14%, var(--divider-color));
       padding: 10px 0;
+    }
+
+    .consumer:hover {
+      background: color-mix(in srgb, var(--energy-accent-cool) 4%, transparent);
     }
 
     .consumer-details {
@@ -1782,6 +2044,18 @@ export class EnergyDashboardCard extends LitElement {
 
     .consumer-detail-separator {
       color: var(--secondary-text-color);
+    }
+
+    .consumer-price-cheaper {
+      color: var(--energy-price-cheap);
+    }
+
+    .consumer-price-costlier {
+      color: var(--energy-price-very-expensive);
+    }
+
+    .consumer-price-equal {
+      color: var(--energy-muted);
     }
 
     .consumer-mobile-average-price,
@@ -1835,6 +2109,10 @@ export class EnergyDashboardCard extends LitElement {
       padding: 12px 0;
     }
 
+    .insight:hover {
+      background: color-mix(in srgb, var(--energy-accent-cool) 4%, transparent);
+    }
+
     .insight:first-child {
       border-top: 0;
       padding-top: 0;
@@ -1853,12 +2131,17 @@ export class EnergyDashboardCard extends LitElement {
     }
 
     .insight-positive .insight-icon {
-      background: var(--success-color);
+      background: var(--energy-price-cheap);
       color: var(--primary-background-color);
     }
 
     .insight-warning .insight-icon {
-      background: var(--warning-color);
+      background: var(--energy-price-expensive);
+      color: var(--primary-background-color);
+    }
+
+    .insight-danger .insight-icon {
+      background: var(--energy-price-very-expensive);
       color: var(--primary-background-color);
     }
 
@@ -1926,11 +2209,37 @@ export class EnergyDashboardCard extends LitElement {
       .overview-layout {
         grid-template-columns: minmax(0, 1fr);
       }
+
+      .overview-support {
+        padding: 4px 2px;
+      }
     }
 
     @container dashboard-card (max-width: 480px) {
       .price-stats {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 4px;
+      }
+
+      .price-stats .stat {
+        padding-left: 6px;
+        padding-right: 6px;
+      }
+
+      .price-stats .stat:first-child {
+        padding-left: 0;
+      }
+
+      .price-stats .stat:last-child {
+        padding-right: 0;
+      }
+
+      .price-stats .stat-value {
+        font-size: 14px;
+      }
+
+      .kpi-value {
+        font-size: 18px;
       }
     }
 
@@ -1971,33 +2280,23 @@ export class EnergyDashboardCard extends LitElement {
         grid-template-columns: minmax(0, 1fr);
         gap: 8px;
       }
+    }
 
-      .kpi-grid {
+    @container dashboard-card (max-width: 360px) {
+      .overview-kpis {
         grid-template-columns: minmax(0, 1fr);
       }
 
-      .kpi-summary {
-        border: 1px solid var(--divider-color);
-        border-radius: 12px;
-        gap: 0;
-        grid-column: auto;
-        grid-template-columns: minmax(0, 1fr);
-        overflow: hidden;
+      .overview-kpi,
+      .overview-kpi:nth-child(even),
+      .overview-kpi:nth-child(n + 3) {
+        border-left: 0;
+        border-top: 1px solid var(--energy-border);
+        padding: 8px 0;
       }
 
-      .kpi-summary .kpi {
-        border: 0;
-        border-radius: 0;
-        border-bottom: 1px solid var(--divider-color);
-      }
-
-      .kpi-summary .kpi:last-child {
-        border-bottom: 0;
-      }
-
-      .kpi-value {
-        white-space: normal;
-        overflow-wrap: anywhere;
+      .overview-kpi:first-child {
+        border-top: 0;
       }
     }
 
@@ -2018,6 +2317,23 @@ export class EnergyDashboardCard extends LitElement {
     }
 
     @container dashboard-card (max-width: 420px) {
+      .price-gauge {
+        height: 148px;
+        width: 148px;
+      }
+
+      .price-gauge-center {
+        inset: 13px;
+      }
+
+      .price-gauge-center .current-price {
+        font-size: 24px;
+      }
+
+      .price-gauge-center .price-status {
+        min-width: 108px;
+      }
+
       .smart-score-metrics {
         grid-template-columns: minmax(0, 1fr);
         gap: 8px;
@@ -2046,23 +2362,10 @@ export class EnergyDashboardCard extends LitElement {
         font-size: 15px;
       }
 
-      .kpi-section,
       .smart-score-section,
       .consumers-section,
       .insights-section {
         padding: 18px;
-      }
-
-      .kpi-grid {
-        gap: 8px;
-      }
-
-      .kpi {
-        padding: 12px;
-      }
-
-      .kpi-value {
-        font-size: 19px;
       }
 
       .consumer {
