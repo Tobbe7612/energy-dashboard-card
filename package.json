@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "rollup -c",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/timeline-subscription.test.js"
   },
   "dependencies": {
     "lit": "^3.3.1"

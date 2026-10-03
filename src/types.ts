@@ -175,8 +175,18 @@ export interface DashboardPayload {
   window: {
     start: string;
     end: string;
+    today_start: string;
     hours: number;
   };
+}
+
+export type Unsubscribe = () => void;
+
+export interface HomeAssistantConnection {
+  subscribeMessage<T>(
+    callback: (message: T) => void,
+    message: { type: string; [key: string]: unknown },
+  ): Promise<Unsubscribe>;
 }
 
 export interface HomeAssistant {
@@ -189,4 +199,5 @@ export interface HomeAssistant {
       | string;
     [key: string]: unknown;
   }): Promise<T>;
+  connection?: HomeAssistantConnection;
 }

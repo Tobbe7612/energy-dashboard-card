@@ -1,5 +1,22 @@
 import { LitElement, html, css, svg } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import {
+  DashboardRequestGuard,
+  DashboardSubscription,
+} from "./dashboard-subscription";
+import {
+  getTimelineBounds,
+  isConsumptionTimestampInTimeline,
+  isFuturePriceInTimeline,
+  isTimestampInTimeline,
+  shouldShowNowMarker,
+  DEFAULT_DASHBOARD_VIEW,
+  type DashboardView,
+} from "./timeline-view";
+import {
+  formatIntervalWithFormatter,
+  formatTimeLabelWithFormatter,
+} from "./time-formatters";
 import type {
   DashboardConsumer,
   DashboardInsight,
@@ -7,6 +24,11 @@ import type {
   EnergyDashboardCardConfig,
   HomeAssistant,
 } from "./types";
+
+const SWEDISH_TIME_FORMATTER = new Intl.DateTimeFormat("sv-SE", {
+  hour: "2-digit",
+  minute: "2-digit",
+});
 
 @customElement("energy-dashboard-card")
 export class EnergyDashboardCard extends LitElement {
@@ -24,6 +46,12 @@ export class EnergyDashboardCard extends LitElement {
   @state()
   private loading = false;
 
+  @state()
+  private view: DashboardView = DEFAULT_DASHBOARD_VIEW;
+
+  private readonly dashboardSubscription = new DashboardSubscription();
+  private readonly dashboardRequestGuard = new DashboardRequestGuard();
+
   public setConfig(config: EnergyDashboardCardConfig): void {
     if (!config || config.type !== "custom:energy-dashboard-card") {
       throw new Error("Invalid configuration for energy-dashboard-card");
@@ -33,34 +61,115 @@ export class EnergyDashboardCard extends LitElement {
       throw new Error("config_entry_id is required");
     }
 
+    if (this.config?.config_entry_id !== config.config_entry_id) {
+      this.dashboardSubscription.unsubscribeNow();
+      this.invalidateFallbackRequests();
+      this.data = undefined;
+    }
     this.config = config;
+    if (this.isConnected) void this.ensureDashboardSubscription();
+  }
+
+  public connectedCallback(): void {
+    super.connectedCallback();
+    this.invalidateFallbackRequests();
+    void this.ensureDashboardSubscription();
+  }
+
+  public disconnectedCallback(): void {
+    super.disconnectedCallback();
+    this.dashboardSubscription.unsubscribeNow();
+    this.invalidateFallbackRequests();
   }
 
   protected updated(changed: Map<PropertyKey, unknown>): void {
-    if (changed.has("hass") && this.hass && !this.data && !this.loading) {
-      void this.loadDashboardData();
+    if (changed.has("hass")) {
+      const previousHass = changed.get("hass") as HomeAssistant | undefined;
+      if (
+        (previousHass?.connection ?? previousHass) !==
+        (this.hass?.connection ?? this.hass)
+      ) {
+        this.invalidateFallbackRequests();
+      }
+      if (this.hass) {
+        void this.ensureDashboardSubscription();
+      } else {
+        this.dashboardSubscription.unsubscribeNow();
+      }
     }
+  }
+
+  private async ensureDashboardSubscription(): Promise<void> {
+    if (!this.isConnected || !this.hass || !this.config?.config_entry_id) {
+      return;
+    }
+
+    const connection = this.hass.connection;
+    if (!connection?.subscribeMessage) {
+      this.dashboardSubscription.unsubscribeNow();
+      if (!this.data && !this.loading) void this.loadDashboardData();
+      return;
+    }
+
+    if (!this.dashboardSubscription.isUsing(connection)) {
+      this.dashboardSubscription.unsubscribeNow();
+    }
+
+    await this.dashboardSubscription.subscribe(
+      connection,
+      this.config.config_entry_id,
+      (payload) => {
+        if (this.isConnected) {
+          this.data = payload;
+          this.error = undefined;
+        }
+      },
+      () => {
+        if (this.isConnected && !this.data) {
+          this.error = undefined;
+          void this.loadDashboardData();
+        }
+      },
+    );
+  }
+
+  private invalidateFallbackRequests(): void {
+    this.dashboardRequestGuard.invalidate();
+    this.loading = false;
   }
 
   private async loadDashboardData(): Promise<void> {
     if (!this.hass) return;
 
-    this.loading = true;
-    this.error = undefined;
-
-    try {
-      this.data = await this.hass.callWS<DashboardPayload>({
+    const hass = this.hass;
+    const configEntryId = this.config.config_entry_id;
+    await this.dashboardRequestGuard.run(
+      hass.connection ?? hass,
+      configEntryId,
+      () => ({
+        connection: this.hass?.connection ?? this.hass,
+        configEntryId: this.config?.config_entry_id,
+        isConnected: this.isConnected,
+      }),
+      () => hass.callWS<DashboardPayload>({
         type: "solar_battery_economy/get_dashboard_data",
-        config_entry_id: this.config.config_entry_id,
-      });
-    } catch (error) {
-      this.error =
-        error instanceof Error
-          ? error.message
-          : JSON.stringify(error, null, 2);
-    } finally {
-      this.loading = false;
-    }
+        config_entry_id: configEntryId,
+      }),
+      {
+        onStart: () => {
+          this.loading = true;
+          this.error = undefined;
+        },
+        onSuccess: (payload) => { this.data = payload; },
+        onFailure: (error) => {
+          this.error =
+            error instanceof Error
+              ? error.message
+              : JSON.stringify(error, null, 2);
+        },
+        onFinish: () => { this.loading = false; },
+      },
+    );
   }
 
   protected render() {
@@ -111,9 +220,11 @@ export class EnergyDashboardCard extends LitElement {
               ${this.renderTimelineSection()}
             </div>
 
-            <div class="dashboard-upcoming">
-              ${this.renderUpcomingPricesSection()}
-            </div>
+          ${this.view === "today-forward"
+            ? html`<div class="dashboard-upcoming">
+                ${this.renderUpcomingPricesSection()}
+              </div>`
+            : ""}
           </div>
 
           <div class="dashboard-lower-grid">
@@ -232,6 +343,8 @@ export class EnergyDashboardCard extends LitElement {
       `;
     }
 
+    const consumerSeries = this.getConsumerTimelineSeries(timeline);
+
     return html`
       <section class="timeline-section">
         <div class="timeline-heading">
@@ -240,8 +353,24 @@ export class EnergyDashboardCard extends LitElement {
               IMPORTPRIS & HUSFÖRBRUKNING
             </div>
             <div class="timeline-subtitle">
-              Senaste 24h och kommande importpriser
+              ${this.view === "yesterday"
+                ? "Gårdagens lokala dygn"
+                : "Idag och tillgängliga framtida importpriser"}
             </div>
+          </div>
+          <div class="timeline-view-selector" role="group" aria-label="Tidsvy">
+            <button
+              type="button"
+              aria-pressed="${this.view === "yesterday"}"
+              class=${this.view === "yesterday" ? "selected" : ""}
+              @click=${() => this.setView("yesterday")}
+            >IGÅR</button>
+            <button
+              type="button"
+              aria-pressed="${this.view === "today-forward"}"
+              class=${this.view === "today-forward" ? "selected" : ""}
+              @click=${() => this.setView("today-forward")}
+            >IDAG + FRAMÅT</button>
           </div>
           <div class="timeline-legend">
             <span class="legend-item">
@@ -256,6 +385,15 @@ export class EnergyDashboardCard extends LitElement {
               <span class="legend-bar"></span>
               Förbrukning
             </span>
+            ${consumerSeries.map(({ consumer, index }) => html`
+              <span class="legend-item">
+                <span
+                  class="legend-consumer"
+                  style="--consumer-accent: ${this.getConsumerColor(index)}"
+                ></span>
+                ${consumer.name || this.getConsumerFallbackName(consumer)}
+              </span>
+            `)}
           </div>
         </div>
 
@@ -269,9 +407,15 @@ export class EnergyDashboardCard extends LitElement {
             >
               ${this.renderTimelineGrid(timeline)}
               ${this.renderHouseBars(timeline)}
+              ${this.renderConsumerSeries(timeline, consumerSeries)}
               ${this.renderHistoricalImportPrice(timeline)}
               ${this.renderFutureImportPrice(timeline)}
-              ${this.renderNowMarker(timeline)}
+              ${shouldShowNowMarker(this.view)
+                ? this.renderNowMarker(
+                    timeline,
+                    this.data.price.current.price_class.toLowerCase(),
+                  )
+                : svg``}
               ${this.renderTimelineLabels(timeline)}
             </svg>
           `}
@@ -283,35 +427,24 @@ export class EnergyDashboardCard extends LitElement {
   private buildTimelineModel() {
     if (!this.data) return undefined;
 
-    const historyStart = new Date(this.data.window.start).getTime();
-    const historyEnd = new Date(this.data.window.end).getTime();
+    const bounds = getTimelineBounds(this.data, this.view);
     const now = Date.now();
 
-    if (!Number.isFinite(historyStart) || !Number.isFinite(historyEnd)) {
-      return undefined;
-    }
+    if (!bounds) return undefined;
+    const { start, end } = bounds;
 
-    const forecast = this.data.price.forecast
+    const forecast = (shouldShowNowMarker(this.view)
+      ? this.data.price.forecast
+      : [])
       .filter((item) => {
-        const start = new Date(item.start).getTime();
-        const end = new Date(item.end).getTime();
-        return Number.isFinite(start) && Number.isFinite(end) && end > now;
+        const forecastStart = new Date(item.start).getTime();
+        const forecastEnd = new Date(item.end).getTime();
+        return isFuturePriceInTimeline(forecastStart, forecastEnd, bounds, now);
       })
       .sort(
         (a, b) =>
           new Date(a.start).getTime() - new Date(b.start).getTime(),
       );
-
-    const futureEnd = forecast.length
-      ? Math.max(
-          ...forecast.map((item) => new Date(item.end).getTime()),
-        )
-      : historyEnd;
-
-    const start = Math.min(historyStart, now - 24 * 60 * 60 * 1000);
-    const end = Math.max(futureEnd, now);
-
-    if (!(end > start)) return undefined;
 
     const width = 1000;
     const height = 250;
@@ -330,18 +463,29 @@ export class EnergyDashboardCard extends LitElement {
       ((timestamp - start) / (end - start)) * plotWidth;
 
     const importValues = [
-      ...this.data.price_history.import_intervals.map((item) => item.import),
+      ...this.data.price_history.import_intervals
+        .filter((item) =>
+          isTimestampInTimeline(new Date(item.start).getTime(), bounds),
+        )
+        .map((item) => item.import),
       ...forecast.map((item) => item.import),
     ].filter((value) => Number.isFinite(value) && value >= 0);
 
+    const currentImportStart = new Date(this.data.price.current.start).getTime();
+    const currentImport = isTimestampInTimeline(currentImportStart, bounds)
+      ? this.data.price.current.import
+      : 0;
     const maxImport = Math.max(
-      this.data.price.current.import,
+      currentImport,
       ...importValues,
       0.01,
     );
     const importMax = this.roundChartMax(maxImport);
 
     const houseValues = this.data.house_history
+      .filter((item) =>
+        isTimestampInTimeline(new Date(item.start).getTime(), bounds),
+      )
       .map((item) => item.energy_kwh)
       .filter((value) => Number.isFinite(value) && value > 0);
 
@@ -362,13 +506,16 @@ export class EnergyDashboardCard extends LitElement {
       plotHeight,
       start,
       end,
-      now: Math.min(Math.max(now, start), end),
+      now: !shouldShowNowMarker(this.view)
+        ? end
+        : Math.min(Math.max(now, start), end),
+      bounds,
       x,
       yImport,
       yHouse,
       importMax,
       houseMax,
-      historyEnd,
+      historyEnd: end,
       forecast,
     };
   }
@@ -388,11 +535,133 @@ export class EnergyDashboardCard extends LitElement {
     return Math.ceil(value / step) * step;
   }
 
+  private getTimelineHourTicks(timeline: ReturnType<typeof this.buildTimelineModel>) {
+    if (!timeline) return [];
+
+    const firstHour = new Date(timeline.start);
+    firstHour.setMinutes(0, 0, 0);
+
+    let timestamp = firstHour.getTime();
+    if (timestamp < timeline.start) {
+      firstHour.setHours(firstHour.getHours() + 1);
+      timestamp = firstHour.getTime();
+    }
+
+    const ticks: number[] = [];
+    for (
+      let tick = timestamp;
+      tick <= timeline.end;
+      tick += 60 * 60 * 1000
+    ) {
+      if (new Date(tick).getMinutes() === 0) ticks.push(tick);
+    }
+
+    const desktopStride = Math.max(1, Math.ceil(ticks.length / 26));
+
+    return ticks.map((tick, index) => ({
+      timestamp: tick,
+      desktop: index % desktopStride === 0,
+      narrow: index % (desktopStride * 2) === 0,
+      mobile: index % (desktopStride * 3) === 0,
+    }));
+  }
+
+  private getConsumerTimelineSeries(
+    timeline: ReturnType<typeof this.buildTimelineModel>,
+  ) {
+    if (!timeline || !this.data) return [];
+
+    return Object.values(this.data.consumers)
+      .map((consumer, index) => {
+        const points = consumer.history
+          .map((point) => ({
+            start: new Date(point.start).getTime(),
+            end: new Date(point.end).getTime(),
+            energy_kwh: point.energy_kwh,
+          }))
+          .filter(
+            (point) =>
+              Number.isFinite(point.start) &&
+              Number.isFinite(point.end) &&
+              point.end > point.start &&
+              Number.isFinite(point.energy_kwh) &&
+              point.energy_kwh > 0 &&
+              isConsumptionTimestampInTimeline(
+                point.start,
+                timeline.bounds,
+                timeline.now,
+              ),
+          );
+
+        return { consumer, index, points };
+      })
+      .filter(({ points }) => points.some((point) => point.energy_kwh > 0));
+  }
+
+  private renderConsumerSeries(
+    timeline: ReturnType<typeof this.buildTimelineModel>,
+    series: ReturnType<typeof this.getConsumerTimelineSeries>,
+  ) {
+    if (!timeline) return svg``;
+
+    return series.map(({ consumer, index, points }) => {
+      const areas = points.map((point) => {
+        const start = Math.max(point.start, timeline.start);
+        const end = Math.min(point.end, timeline.now);
+        if (end <= start) return svg``;
+
+        const x1 = timeline.x(start);
+        const x2 = timeline.x(end);
+        const y = timeline.yHouse(point.energy_kwh);
+        const baseline = timeline.plot.top + timeline.plotHeight;
+
+        return svg`
+          <rect
+            x="${x1}"
+            y="${y}"
+            width="${Math.max(1, x2 - x1)}"
+            height="${Math.max(1, baseline - y)}"
+            rx="1"
+            fill-opacity="0.52"
+          >
+            <title>
+              ${consumer.name || this.getConsumerFallbackName(consumer)}
+              · ${this.formatInterval(
+                new Date(point.start).toISOString(),
+                new Date(point.end).toISOString(),
+              )}
+              · ${this.formatNumber(point.energy_kwh, 3)} kWh
+            </title>
+          </rect>
+          <line
+            class="consumer-series-edge"
+            x1="${x1}"
+            x2="${x2}"
+            y1="${y}"
+            y2="${y}"
+          ></line>
+        `;
+      });
+
+      if (areas.length === 0) return svg``;
+
+      return svg`
+        <g
+          class="consumer-series"
+          style="--consumer-accent: ${this.getConsumerColor(index)}"
+        >
+          <title>${consumer.name || this.getConsumerFallbackName(consumer)}</title>
+          ${areas}
+        </g>
+      `;
+    });
+  }
+
   private renderTimelineGrid(timeline: ReturnType<typeof this.buildTimelineModel>) {
     if (!timeline) return svg``;
 
     const yTicks = [0, 0.25, 0.5, 0.75, 1];
-    const timeTicks = 6;
+    const timeTicks = this.getTimelineHourTicks(timeline);
     const gridColor = "var(--divider-color)";
     const secondary = "var(--secondary-text-color)";
 
@@ -424,6 +693,13 @@ export class EnergyDashboardCard extends LitElement {
         `;
       })}
 
+      <text
+        class="timeline-axis-title"
+        transform="translate(13 ${timeline.plot.top + timeline.plotHeight / 2}) rotate(-90)"
+        text-anchor="middle"
+        dominant-baseline="middle"
+      >kr/kWh</text>
+
       <line
         x1="${timeline.width - timeline.plot.right}"
         x2="${timeline.width - timeline.plot.right}"
@@ -433,14 +709,6 @@ export class EnergyDashboardCard extends LitElement {
         stroke-width="1"
         opacity="0.35"
       ></line>
-
-      <text
-        x="${timeline.width - timeline.plot.right + 6}"
-        y="${timeline.plot.top - 7}"
-        text-anchor="start"
-        fill="${secondary}"
-        font-size="10"
-      >kWh</text>
 
       ${yTicks.map((ratio) => {
         const y =
@@ -460,10 +728,7 @@ export class EnergyDashboardCard extends LitElement {
         `;
       })}
 
-      ${Array.from({ length: timeTicks + 1 }, (_, index) => {
-        const timestamp =
-          timeline.start +
-          ((timeline.end - timeline.start) / timeTicks) * index;
+      ${timeTicks.map(({ timestamp }) => {
         const x = timeline.x(timestamp);
 
         return svg`
@@ -491,15 +756,19 @@ export class EnergyDashboardCard extends LitElement {
       if (
         !Number.isFinite(start) ||
         !Number.isFinite(end) ||
-        end <= timeline.start ||
-        start >= timeline.end ||
+        start < timeline.start ||
+        !isConsumptionTimestampInTimeline(
+          start,
+          timeline.bounds,
+          timeline.now,
+        ) ||
         item.energy_kwh <= 0
       ) {
         return svg``;
       }
 
       const clippedStart = Math.max(start, timeline.start);
-      const clippedEnd = Math.min(end, timeline.end);
+      const clippedEnd = Math.min(end, timeline.end, timeline.now);
       const x = timeline.x(clippedStart);
       const width = Math.max(
         1,
@@ -542,7 +811,7 @@ export class EnergyDashboardCard extends LitElement {
           Number.isFinite(item.start) &&
           Number.isFinite(item.end) &&
           Number.isFinite(item.import) &&
-          item.end > timeline.start &&
+          isTimestampInTimeline(item.start, timeline.bounds) &&
           item.start < timeline.now,
       )
       .sort((a, b) => a.start - b.start);
@@ -641,10 +910,20 @@ export class EnergyDashboardCard extends LitElement {
           ></path>
         `;
       })}
+
+      <text
+        class="timeline-axis-title"
+        transform="translate(${timeline.width - 11} ${timeline.plot.top + timeline.plotHeight / 2}) rotate(90)"
+        text-anchor="middle"
+        dominant-baseline="middle"
+      >kWh</text>
     `;
   }
 
-  private renderNowMarker(timeline: ReturnType<typeof this.buildTimelineModel>) {
+  private renderNowMarker(
+    timeline: ReturnType<typeof this.buildTimelineModel>,
+    priceClass: string,
+  ) {
     if (!timeline) return svg``;
 
     const x = timeline.x(timeline.now);
@@ -655,20 +934,18 @@ export class EnergyDashboardCard extends LitElement {
         x2="${x}"
         y1="${timeline.plot.top - 4}"
         y2="${timeline.plot.top + timeline.plotHeight}"
-        class="timeline-now-line"
-        stroke="var(--energy-accent-cool)"
+        class="timeline-now-line ${priceClass}"
         stroke-width="2"
         stroke-dasharray="3 4"
         opacity="0.85"
       ></line>
       <rect
-        class="timeline-now-label"
+        class="timeline-now-label ${priceClass}"
         x="${x - 18}"
         y="0"
         width="36"
         height="18"
         rx="9"
-        fill="var(--energy-accent-cool)"
       ></rect>
       <text
         x="${x}"
@@ -684,21 +961,26 @@ export class EnergyDashboardCard extends LitElement {
   private renderTimelineLabels(timeline: ReturnType<typeof this.buildTimelineModel>) {
     if (!timeline) return svg``;
 
-    const labels = 6;
+    const ticks = this.getTimelineHourTicks(timeline);
 
     return svg`
-      ${Array.from({ length: labels + 1 }, (_, index) => {
-        const timestamp =
-          timeline.start +
-          ((timeline.end - timeline.start) / labels) * index;
+      ${ticks.map(({ timestamp, desktop, narrow, mobile }) => {
         const date = new Date(timestamp);
         const x = timeline.x(timestamp);
+        const textAnchor =
+          x < timeline.plot.left + 18
+            ? "start"
+            : x > timeline.width - timeline.plot.right - 18
+              ? "end"
+              : "middle";
 
         return svg`
           <text
+            class="timeline-time-label ${desktop ? "hour-label-desktop" : ""} ${narrow ? "hour-label-narrow" : ""} ${mobile ? "hour-label-mobile" : ""}"
+            display="${desktop ? "inline" : "none"}"
             x="${x}"
             y="${timeline.height - 10}"
-            text-anchor="${index === 0 ? "start" : index === labels ? "end" : "middle"}"
+            text-anchor="${textAnchor}"
             fill="var(--secondary-text-color)"
             font-size="10"
           >${this.formatTimeLabel(date)}</text>
@@ -708,10 +990,7 @@ export class EnergyDashboardCard extends LitElement {
   }
 
   private formatTimeLabel(date: Date): string {
-    return new Intl.DateTimeFormat("sv-SE", {
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(date);
+    return formatTimeLabelWithFormatter(SWEDISH_TIME_FORMATTER, date);
   }
 
   // ---------------------------------------------------------------------------
@@ -742,23 +1021,52 @@ export class EnergyDashboardCard extends LitElement {
 
     if (upcoming.length === 0) return html``;
 
+    let hourMarkerIndex = 0;
+
     return html`
       <section class="upcoming-section">
         <div class="section-title">KOMMANDE PRISER (15 MINUTER)</div>
 
-        <div class="upcoming-list" aria-label="Kommande importpriser">
-          ${upcoming.map((item) => {
-            const details = `${this.formatInterval(item.start, item.end)} · ${this.formatPrice(item.import)} kr/kWh import · ${this.getPriceClassShortLabel(item.price_class)}`;
+        <div class="upcoming-scroll">
+          <div class="upcoming-track">
+            <div class="upcoming-time-axis" aria-hidden="true">
+              ${upcoming.map((item) => {
+                const start = new Date(item.start);
+                const isHour =
+                  start.getMinutes() === 0 &&
+                  start.getSeconds() === 0 &&
+                  start.getMilliseconds() === 0;
+                const markerIndex = isHour ? hourMarkerIndex++ : -1;
 
-            return html`
-              <div
-                class="upcoming-price ${item.price_class.toLowerCase()}"
-                role="img"
-                aria-label="${details}"
-                title="${details}"
-              ></div>
-            `;
-          })}
+                return html`
+                  <span class="upcoming-time-cell ${isHour ? "upcoming-hour-marker" : ""}">
+                    ${isHour
+                      ? html`
+                          <span class="upcoming-hour-label ${markerIndex % 2 === 0 ? "hour-label-narrow" : ""} ${markerIndex % 3 === 0 ? "hour-label-mobile" : ""}">
+                            ${this.formatTimeLabel(start)}
+                          </span>
+                        `
+                      : ""}
+                  </span>
+                `;
+              })}
+            </div>
+
+            <div class="upcoming-list" aria-label="Kommande importpriser">
+              ${upcoming.map((item) => {
+                const details = `${this.formatInterval(item.start, item.end)} · ${this.formatPrice(item.import)} kr/kWh import · ${this.getPriceClassShortLabel(item.price_class)}`;
+
+                return html`
+                  <div
+                    class="upcoming-price ${item.price_class.toLowerCase()}"
+                    role="img"
+                    aria-label="${details}"
+                    title="${details}"
+                  ></div>
+                `;
+              })}
+            </div>
+          </div>
         </div>
       </section>
     `;
@@ -826,6 +1134,10 @@ export class EnergyDashboardCard extends LitElement {
     `;
   }
 
+  private setView(view: DashboardView): void {
+    this.view = view;
+  }
+
   // ---------------------------------------------------------------------------
   // CONSUMERS
   // ---------------------------------------------------------------------------
@@ -867,6 +1179,20 @@ export class EnergyDashboardCard extends LitElement {
     `;
   }
 
+  private getConsumerColor(index: number): string {
+    const palette = [
+      "#00cfff",
+      "#b46cff",
+      "#ff4fb8",
+      "#6f7cff",
+      "#25d9c8",
+      "#d276ff",
+      "#45a5ff",
+    ];
+
+    return palette[index % palette.length];
+  }
+
   private renderConsumersSection() {
     if (!this.data) return html``;
 
@@ -884,15 +1210,15 @@ export class EnergyDashboardCard extends LitElement {
         </div>
 
         <div class="consumer-list">
-          ${consumers.map((consumer) =>
-            this.renderConsumer(consumer),
+          ${consumers.map((consumer, index) =>
+            this.renderConsumer(consumer, index),
           )}
         </div>
       </section>
     `;
   }
 
-  private renderConsumer(consumer: DashboardConsumer) {
+  private renderConsumer(consumer: DashboardConsumer, index: number) {
     const analysis = consumer.analysis;
     const hasConsumption = analysis.energy_kwh > 0;
 
@@ -900,7 +1226,10 @@ export class EnergyDashboardCard extends LitElement {
       consumer.name || this.getConsumerFallbackName(consumer);
 
     return html`
-      <div class="consumer">
+      <div
+        class="consumer"
+        style="--consumer-accent: ${this.getConsumerColor(index)}"
+      >
         <div class="consumer-name">${name}</div>
 
         <div class="consumer-metric-value">
@@ -1259,22 +1588,11 @@ export class EnergyDashboardCard extends LitElement {
   }
 
   private formatInterval(start: string, end: string): string {
-    const startDate = new Date(start);
-    const endDate = new Date(end);
-
-    if (
-      Number.isNaN(startDate.getTime()) ||
-      Number.isNaN(endDate.getTime())
-    ) {
-      return "—";
-    }
-
-    const formatter = new Intl.DateTimeFormat("sv-SE", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-
-    return `${formatter.format(startDate)}–${formatter.format(endDate)}`;
+    return formatIntervalWithFormatter(
+      SWEDISH_TIME_FORMATTER,
+      start,
+      end,
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -1290,11 +1608,11 @@ export class EnergyDashboardCard extends LitElement {
       --energy-border: rgba(145, 176, 203, 0.18);
       --energy-text: #eaf2fa;
       --energy-muted: #9eb1c3;
-      --energy-price-cheap: #43c982;
-      --energy-price-normal: #e5c15b;
-      --energy-price-expensive: #f09a4a;
-      --energy-price-very-expensive: #f0646b;
-      --energy-accent-cool: #43c4e5;
+      --energy-price-cheap: #50dc84;
+      --energy-price-normal: #f0cd58;
+      --energy-price-expensive: #ff9b4e;
+      --energy-price-very-expensive: #ff6f78;
+      --energy-accent-cool: #50d8f2;
     }
 
     ha-card {
@@ -1718,6 +2036,33 @@ export class EnergyDashboardCard extends LitElement {
       justify-content: flex-end;
     }
 
+    .timeline-view-selector {
+      border: 1px solid var(--energy-border);
+      border-radius: 8px;
+      display: flex;
+      flex: 0 0 auto;
+      gap: 2px;
+      padding: 2px;
+    }
+
+    .timeline-view-selector button {
+      background: transparent;
+      border: 0;
+      border-radius: 6px;
+      color: var(--energy-muted);
+      cursor: pointer;
+      font: inherit;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 5px 8px;
+      white-space: nowrap;
+    }
+
+    .timeline-view-selector button.selected {
+      background: color-mix(in srgb, var(--energy-accent-cool) 18%, transparent);
+      color: var(--energy-text);
+    }
+
     .legend-item {
       align-items: center;
       color: var(--secondary-text-color);
@@ -1774,6 +2119,29 @@ export class EnergyDashboardCard extends LitElement {
       width: 14px;
     }
 
+    .legend-consumer {
+      background: var(--consumer-accent);
+      border-radius: 50%;
+      display: inline-block;
+      flex: 0 0 8px;
+      height: 8px;
+      width: 8px;
+    }
+
+    .consumer-series {
+      fill: var(--consumer-accent);
+    }
+
+    .consumer-series-edge {
+      stroke: var(--consumer-accent);
+      stroke-opacity: 0.96;
+      stroke-width: 1.25;
+    }
+
+    .timeline-time-label.hour-label-desktop {
+      display: inline;
+    }
+
     .timeline-chart {
       background: linear-gradient(
         to top,
@@ -1785,12 +2153,41 @@ export class EnergyDashboardCard extends LitElement {
       padding: 0;
     }
 
+    .timeline-axis-title {
+      fill: var(--secondary-text-color);
+      font-size: 10px;
+    }
+
+    .timeline-now-line,
+    .timeline-now-label {
+      --timeline-now-accent: var(--energy-price-normal);
+    }
+
+    .timeline-now-line.very_cheap,
+    .timeline-now-line.cheap,
+    .timeline-now-label.very_cheap,
+    .timeline-now-label.cheap {
+      --timeline-now-accent: var(--energy-price-cheap);
+    }
+
+    .timeline-now-line.expensive,
+    .timeline-now-label.expensive {
+      --timeline-now-accent: var(--energy-price-expensive);
+    }
+
+    .timeline-now-line.very_expensive,
+    .timeline-now-label.very_expensive {
+      --timeline-now-accent: var(--energy-price-very-expensive);
+    }
+
     .timeline-now-line {
-      filter: drop-shadow(0 0 3px color-mix(in srgb, var(--energy-accent-cool) 55%, transparent));
+      filter: drop-shadow(0 0 3px color-mix(in srgb, var(--timeline-now-accent) 48%, transparent));
+      stroke: var(--timeline-now-accent);
     }
 
     .timeline-now-label {
-      filter: drop-shadow(0 0 4px color-mix(in srgb, var(--energy-accent-cool) 45%, transparent));
+      fill: var(--timeline-now-accent);
+      filter: drop-shadow(0 0 4px color-mix(in srgb, var(--timeline-now-accent) 42%, transparent));
     }
 
     .timeline-chart svg {
@@ -1822,9 +2219,53 @@ export class EnergyDashboardCard extends LitElement {
       grid-auto-flow: column;
       grid-template-columns: none;
       gap: 2px;
-      overflow-x: auto;
       padding: 2px 1px 8px;
+      width: max-content;
+    }
+
+    .upcoming-scroll {
+      max-width: 100%;
+      min-width: 0;
+      overflow-x: auto;
+      overflow-y: hidden;
       scrollbar-width: thin;
+    }
+
+    .upcoming-track {
+      min-width: 100%;
+      width: max-content;
+    }
+
+    .upcoming-time-axis {
+      box-sizing: border-box;
+      display: grid;
+      grid-auto-columns: 10px;
+      grid-auto-flow: column;
+      grid-template-columns: none;
+      gap: 2px;
+      height: 18px;
+      padding-left: 1px;
+      width: max-content;
+    }
+
+    .upcoming-time-cell {
+      box-sizing: border-box;
+      min-width: 0;
+      position: relative;
+      width: 10px;
+    }
+
+    .upcoming-hour-marker {
+      border-left: 1px solid var(--energy-border);
+    }
+
+    .upcoming-hour-label {
+      bottom: 2px;
+      color: var(--energy-muted);
+      font-size: 9px;
+      left: 3px;
+      position: absolute;
+      white-space: nowrap;
     }
 
     .upcoming-price {
@@ -1837,28 +2278,28 @@ export class EnergyDashboardCard extends LitElement {
     }
 
     .upcoming-price.very_cheap {
-      background: color-mix(in srgb, var(--energy-price-cheap) 36%, var(--energy-panel));
-      border-color: color-mix(in srgb, var(--energy-price-cheap) 38%, var(--energy-border));
+      background: color-mix(in srgb, var(--energy-price-cheap) 76%, var(--energy-panel));
+      border-color: color-mix(in srgb, var(--energy-price-cheap) 82%, var(--energy-border));
     }
 
     .upcoming-price.cheap {
-      background: color-mix(in srgb, var(--energy-price-cheap) 27%, var(--energy-panel));
-      border-color: color-mix(in srgb, var(--energy-price-cheap) 28%, var(--energy-border));
+      background: color-mix(in srgb, var(--energy-price-cheap) 62%, var(--energy-panel));
+      border-color: color-mix(in srgb, var(--energy-price-cheap) 70%, var(--energy-border));
     }
 
     .upcoming-price.normal {
-      background: color-mix(in srgb, var(--energy-price-normal) 23%, var(--energy-panel));
-      border-color: color-mix(in srgb, var(--energy-price-normal) 24%, var(--energy-border));
+      background: color-mix(in srgb, var(--energy-price-normal) 58%, var(--energy-panel));
+      border-color: color-mix(in srgb, var(--energy-price-normal) 68%, var(--energy-border));
     }
 
     .upcoming-price.expensive {
-      background: color-mix(in srgb, var(--energy-price-expensive) 31%, var(--energy-panel));
-      border-color: color-mix(in srgb, var(--energy-price-expensive) 32%, var(--energy-border));
+      background: color-mix(in srgb, var(--energy-price-expensive) 66%, var(--energy-panel));
+      border-color: color-mix(in srgb, var(--energy-price-expensive) 74%, var(--energy-border));
     }
 
     .upcoming-price.very_expensive {
-      background: color-mix(in srgb, var(--energy-price-very-expensive) 40%, var(--energy-panel));
-      border-color: color-mix(in srgb, var(--energy-price-very-expensive) 40%, var(--energy-border));
+      background: color-mix(in srgb, var(--energy-price-very-expensive) 74%, var(--energy-panel));
+      border-color: color-mix(in srgb, var(--energy-price-very-expensive) 82%, var(--energy-border));
     }
 
     /* OVERVIEW KPIS */
@@ -2064,9 +2505,22 @@ export class EnergyDashboardCard extends LitElement {
     }
 
     .consumer-name {
+      align-items: flex-start;
+      display: flex;
       font-size: 13px;
       font-weight: 600;
+      gap: 7px;
       min-width: 0;
+    }
+
+    .consumer-name::before {
+      background: var(--consumer-accent);
+      border-radius: 50%;
+      content: "";
+      flex: 0 0 8px;
+      height: 8px;
+      margin-top: 4px;
+      width: 8px;
     }
 
     .consumer-metric-value {
@@ -2273,6 +2727,22 @@ export class EnergyDashboardCard extends LitElement {
       .timeline-chart svg text {
         font-size: 15px;
       }
+
+      .timeline-time-label.hour-label-desktop {
+        display: none;
+      }
+
+      .timeline-time-label.hour-label-narrow {
+        display: inline;
+      }
+
+      .upcoming-hour-label:not(.hour-label-narrow) {
+        display: none;
+      }
+
+      .timeline-legend {
+        gap: 8px;
+      }
     }
 
     @container dashboard-card (max-width: 700px) {
@@ -2317,6 +2787,18 @@ export class EnergyDashboardCard extends LitElement {
     }
 
     @container dashboard-card (max-width: 420px) {
+      .timeline-time-label.hour-label-narrow {
+        display: none;
+      }
+
+      .timeline-time-label.hour-label-mobile {
+        display: inline;
+      }
+
+      .upcoming-hour-label:not(.hour-label-mobile) {
+        display: none;
+      }
+
       .price-gauge {
         height: 148px;
         width: 148px;
