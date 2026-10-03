@@ -1,3 +1,11 @@
+export const DASHBOARD_TIME_ZONE = "Europe/Stockholm";
+
+export const SWEDISH_TIME_FORMATTER = new Intl.DateTimeFormat("sv-SE", {
+  timeZone: DASHBOARD_TIME_ZONE,
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
 export function formatTimeLabelWithFormatter(
   formatter: Intl.DateTimeFormat,
   date: Date,

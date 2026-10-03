@@ -3,24 +3,42 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import ts from "typescript";
 
-async function importTypeScript(path) {
-  const source = await readFile(new URL(path, import.meta.url), "utf8");
-  const output = ts.transpileModule(source, {
+async function transpileTypeScript(url) {
+  const source = await readFile(url, "utf8");
+  let output = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
   }).outputText;
+
+  for (const match of output.matchAll(/from (["'])(.+?)\1/g)) {
+    const specifier = match[2];
+    if (!specifier.startsWith(".")) continue;
+
+    const dependencyUrl = new URL(
+      specifier.endsWith(".ts") ? specifier : `${specifier}.ts`,
+      url,
+    );
+    const dependency = await transpileTypeScript(dependencyUrl);
+    output = output.replace(
+      match[0],
+      `from "data:text/javascript;base64,${Buffer.from(dependency).toString("base64")}"`,
+    );
+  }
+
+  return output;
+}
+
+async function importTypeScript(path) {
+  const output = await transpileTypeScript(new URL(path, import.meta.url));
   return import(`data:text/javascript;base64,${Buffer.from(output).toString("base64")}`);
 }
 
 const timeline = await importTypeScript("../src/timeline-view.ts");
 const subscriptionModule = await importTypeScript("../src/dashboard-subscription.ts");
 const timeFormatters = await importTypeScript("../src/time-formatters.ts");
-const swedishTimeFormatter = new Intl.DateTimeFormat("sv-SE", {
-  hour: "2-digit",
-  minute: "2-digit",
-});
+const swedishTimeFormatter = timeFormatters.SWEDISH_TIME_FORMATTER;
 const yesterdayStart = Date.parse("2026-10-02T00:00:00+02:00");
 const todayStart = Date.parse("2026-10-03T00:00:00+02:00");
-const windowEnd = Date.parse("2026-10-04T00:00:00+02:00");
+const windowEnd = Date.parse("2026-10-05T00:00:00+02:00");
 const payload = {
   window: {
     start: new Date(yesterdayStart).toISOString(),
@@ -30,16 +48,16 @@ const payload = {
 };
 
 test("Swedish time label formats local 08:05 as 08:05", () => {
-  const localTime = new Date(2026, 9, 3, 8, 5);
+  const stockholmTime = new Date("2026-10-03T06:05:00.000Z");
   assert.equal(
-    timeFormatters.formatTimeLabelWithFormatter(swedishTimeFormatter, localTime),
+    timeFormatters.formatTimeLabelWithFormatter(swedishTimeFormatter, stockholmTime),
     "08:05",
   );
 });
 
 test("Swedish interval formats local 08:05–08:20", () => {
-  const localStart = new Date(2026, 9, 3, 8, 5);
-  const localEnd = new Date(2026, 9, 3, 8, 20);
+  const localStart = new Date("2026-10-03T06:05:00.000Z");
+  const localEnd = new Date("2026-10-03T06:20:00.000Z");
   assert.equal(
     timeFormatters.formatIntervalWithFormatter(
       swedishTimeFormatter,
@@ -55,14 +73,14 @@ test("Swedish interval keeps the invalid date fallback", () => {
     timeFormatters.formatIntervalWithFormatter(
       swedishTimeFormatter,
       "invalid",
-      new Date(2026, 9, 3, 8, 20).toISOString(),
+      "2026-10-03T06:20:00.000Z",
     ),
     "—",
   );
 });
 
-test("default view is IDAG + FRAMÅT", () => {
-  assert.equal(timeline.DEFAULT_DASHBOARD_VIEW, "today-forward");
+test("the three timeline views default to IDAG", () => {
+  assert.equal(timeline.DEFAULT_DASHBOARD_VIEW, "today");
 });
 
 test("IGÅR includes window.start and excludes today_start", () => {
@@ -72,29 +90,71 @@ test("IGÅR includes window.start and excludes today_start", () => {
   assert.equal(timeline.isTimestampInTimeline(todayStart, bounds), false);
 });
 
-test("IDAG + FRAMÅT includes today_start through window.end", () => {
-  const bounds = timeline.getTimelineBounds(payload, "today-forward");
+test("IDAG uses today local midnight through tomorrow local midnight", () => {
+  const bounds = timeline.getTimelineBounds(payload, "today");
+  const tomorrowStart = Date.parse("2026-10-04T00:00:00+02:00");
+  assert.equal(bounds.start, todayStart);
+  assert.equal(bounds.end, tomorrowStart);
   assert.equal(timeline.isTimestampInTimeline(todayStart, bounds), true);
-  assert.equal(timeline.isTimestampInTimeline(windowEnd, bounds), true);
-  assert.equal(timeline.isTimestampInTimeline(windowEnd + 1, bounds), false);
+  assert.equal(timeline.isTimestampInTimeline(tomorrowStart - 1, bounds), true);
+  assert.equal(timeline.isTimestampInTimeline(tomorrowStart, bounds), false);
 });
 
-test("historical price boundary includes window.end today and excludes today_start yesterday", () => {
-  const todayBounds = timeline.getTimelineBounds(payload, "today-forward");
+test("IMORGON uses tomorrow local midnight through the following midnight", () => {
+  const bounds = timeline.getTimelineBounds(payload, "tomorrow");
+  const tomorrowStart = Date.parse("2026-10-04T00:00:00+02:00");
+  const followingStart = Date.parse("2026-10-05T00:00:00+02:00");
+  assert.equal(bounds.start, tomorrowStart);
+  assert.equal(bounds.end, followingStart);
+  assert.equal(timeline.isTimestampInTimeline(tomorrowStart, bounds), true);
+  assert.equal(timeline.isTimestampInTimeline(followingStart - 1, bounds), true);
+  assert.equal(timeline.isTimestampInTimeline(followingStart, bounds), false);
+});
+
+test("all three views use half-open boundaries", () => {
+  const todayBounds = timeline.getTimelineBounds(payload, "today");
+  const tomorrowBounds = timeline.getTimelineBounds(payload, "tomorrow");
   const yesterdayBounds = timeline.getTimelineBounds(payload, "yesterday");
-  const historicalPriceAtWindowEnd = windowEnd;
   const historicalPriceAtTodayStart = todayStart;
 
-  assert.equal(
-    timeline.isTimestampInTimeline(historicalPriceAtWindowEnd, todayBounds),
-    true,
-  );
   assert.equal(
     timeline.isTimestampInTimeline(historicalPriceAtTodayStart, yesterdayBounds),
     false,
   );
   assert.equal(timeline.isTimestampInTimeline(yesterdayStart, yesterdayBounds), true);
   assert.equal(timeline.isTimestampInTimeline(todayStart, todayBounds), true);
+  assert.equal(timeline.isTimestampInTimeline(todayBounds.end, todayBounds), false);
+  assert.equal(timeline.isTimestampInTimeline(tomorrowBounds.start, todayBounds), false);
+  assert.equal(timeline.isTimestampInTimeline(tomorrowBounds.start, tomorrowBounds), true);
+  assert.equal(timeline.isTimestampInTimeline(tomorrowBounds.end, tomorrowBounds), false);
+});
+
+test("Stockholm calendar bounds handle the spring DST day as 23 hours", () => {
+  const springPayload = {
+    window: {
+      start: "2026-03-27T23:00:00.000Z",
+      today_start: "2026-03-28T23:00:00.000Z",
+      end: "2026-03-30T22:00:00.000Z",
+    },
+  };
+  const bounds = timeline.getTimelineBounds(springPayload, "today");
+  assert.equal(bounds.start, Date.parse("2026-03-29T00:00:00+01:00"));
+  assert.equal(bounds.end, Date.parse("2026-03-30T00:00:00+02:00"));
+  assert.equal(bounds.end - bounds.start, 23 * 60 * 60 * 1000);
+});
+
+test("Stockholm calendar bounds handle the autumn DST day as 25 hours", () => {
+  const autumnPayload = {
+    window: {
+      start: "2026-10-23T22:00:00.000Z",
+      today_start: "2026-10-24T22:00:00.000Z",
+      end: "2026-10-26T23:00:00.000Z",
+    },
+  };
+  const bounds = timeline.getTimelineBounds(autumnPayload, "today");
+  assert.equal(bounds.start, Date.parse("2026-10-25T00:00:00+02:00"));
+  assert.equal(bounds.end, Date.parse("2026-10-26T00:00:00+01:00"));
+  assert.equal(bounds.end - bounds.start, 25 * 60 * 60 * 1000);
 });
 
 function deferred() {
@@ -357,26 +417,70 @@ test("reconnect creates one fresh subscription", async () => {
   assert.equal(unsubscribeCount, 2);
 });
 
-test("IGÅR has no NOW marker", () => {
+test("IGÅR and IMORGON have no NOW marker", () => {
   assert.equal(timeline.shouldShowNowMarker("yesterday"), false);
+  assert.equal(timeline.shouldShowNowMarker("tomorrow"), false);
 });
 
-test("IDAG + FRAMÅT retains the NOW marker", () => {
-  assert.equal(timeline.shouldShowNowMarker("today-forward"), true);
+test("only IDAG has the NOW marker", () => {
+  assert.equal(timeline.shouldShowNowMarker("today"), true);
 });
 
-test("future price intervals remain in IDAG + FRAMÅT", () => {
-  const bounds = timeline.getTimelineBounds(payload, "today-forward");
+test("forecast inclusion is independent from the NOW marker", () => {
+  assert.equal(timeline.shouldIncludeForecast("yesterday"), false);
+  assert.equal(timeline.shouldIncludeForecast("today"), true);
+  assert.equal(timeline.shouldIncludeForecast("tomorrow"), true);
+  assert.equal(timeline.shouldIncludeConsumption("yesterday"), true);
+  assert.equal(timeline.shouldIncludeConsumption("today"), true);
+  assert.equal(timeline.shouldIncludeConsumption("tomorrow"), false);
+});
+
+test("IDAG separates historical and forecast prices at NOW", () => {
+  const bounds = timeline.getTimelineBounds(payload, "today");
+  const now = todayStart + 60 * 60 * 1000;
+  assert.equal(timeline.isHistoricalPriceInTimeline(now - 1, bounds, now), true);
+  assert.equal(timeline.isHistoricalPriceInTimeline(now, bounds, now), false);
   assert.equal(
-    timeline.isFuturePriceInTimeline(todayStart + 60_000, windowEnd, bounds, todayStart),
+    timeline.isFuturePriceInTimeline(now + 1, now + 60_000, bounds, now),
     true,
+  );
+  assert.equal(
+    timeline.getFuturePriceIntervals([
+      {
+        start: new Date(now + 1).toISOString(),
+        end: new Date(now + 60_000).toISOString(),
+      },
+    ], bounds, now).length,
+    1,
+  );
+  const tomorrowBounds = timeline.getTimelineBounds(payload, "tomorrow");
+  assert.equal(
+    timeline.isHistoricalPriceInTimeline(tomorrowBounds.start, tomorrowBounds, now),
+    false,
   );
 });
 
-test("consumption filtering excludes future points", () => {
-  const bounds = timeline.getTimelineBounds(payload, "today-forward");
+test("consumption is limited to before NOW and excluded for IMORGON", () => {
+  const bounds = timeline.getTimelineBounds(payload, "today");
   const now = todayStart + 60 * 60 * 1000;
   assert.equal(timeline.isConsumptionTimestampInTimeline(now - 1, bounds, now), true);
   assert.equal(timeline.isConsumptionTimestampInTimeline(now, bounds, now), false);
   assert.equal(timeline.isConsumptionTimestampInTimeline(now + 1, bounds, now), false);
+  assert.equal(timeline.shouldIncludeConsumption("tomorrow"), false);
+});
+
+test("tomorrow displays only available forecast intervals and fabricates none", () => {
+  const bounds = timeline.getTimelineBounds(payload, "tomorrow");
+  const tomorrowPrice = {
+    start: "2026-10-04T01:00:00+02:00",
+    end: "2026-10-04T01:15:00+02:00",
+  };
+  assert.deepEqual(
+    timeline.getFuturePriceIntervals([tomorrowPrice], bounds, todayStart),
+    [tomorrowPrice],
+  );
+  assert.deepEqual(
+    timeline.getFuturePriceIntervals([], bounds, todayStart),
+    [],
+  );
 });

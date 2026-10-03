@@ -168,38 +168,12 @@ class DashboardSubscription {
     }
 }
 
-const DEFAULT_DASHBOARD_VIEW = "today-forward";
-function getTimelineBounds(payload, view) {
-    const windowStart = new Date(payload.window.start).getTime();
-    const todayStart = new Date(payload.window.today_start).getTime();
-    const windowEnd = new Date(payload.window.end).getTime();
-    if (!Number.isFinite(windowStart) ||
-        !Number.isFinite(todayStart) ||
-        !Number.isFinite(windowEnd)) {
-        return undefined;
-    }
-    const bounds = view === "yesterday"
-        ? { start: windowStart, end: todayStart, includeEnd: false }
-        : { start: todayStart, end: windowEnd, includeEnd: true };
-    return bounds.end > bounds.start ? bounds : undefined;
-}
-function isTimestampInTimeline(timestamp, bounds) {
-    return Number.isFinite(timestamp) &&
-        timestamp >= bounds.start &&
-        (bounds.includeEnd ? timestamp <= bounds.end : timestamp < bounds.end);
-}
-function shouldShowNowMarker(view) {
-    return view === "today-forward";
-}
-function isConsumptionTimestampInTimeline(timestamp, bounds, now) {
-    return isTimestampInTimeline(timestamp, bounds) && timestamp < now;
-}
-function isFuturePriceInTimeline(start, end, bounds, now) {
-    return isTimestampInTimeline(start, bounds) &&
-        Number.isFinite(end) &&
-        end > now;
-}
-
+const DASHBOARD_TIME_ZONE = "Europe/Stockholm";
+const SWEDISH_TIME_FORMATTER = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: DASHBOARD_TIME_ZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+});
 function formatTimeLabelWithFormatter(formatter, date) {
     return formatter.format(date);
 }
@@ -213,10 +187,88 @@ function formatIntervalWithFormatter(formatter, start, end) {
     return `${formatter.format(startDate)}–${formatter.format(endDate)}`;
 }
 
-const SWEDISH_TIME_FORMATTER = new Intl.DateTimeFormat("sv-SE", {
+const DEFAULT_DASHBOARD_VIEW = "today";
+const STOCKHOLM_DATE_TIME_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+    timeZone: DASHBOARD_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
 });
+function getStockholmDateParts(timestamp) {
+    const parts = STOCKHOLM_DATE_TIME_FORMATTER.formatToParts(new Date(timestamp));
+    const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+    return {
+        year: Number(values.year),
+        month: Number(values.month),
+        day: Number(values.day),
+        hour: Number(values.hour),
+        minute: Number(values.minute),
+        second: Number(values.second),
+    };
+}
+function getStockholmMidnight(timestamp, dayOffset) {
+    const { year, month, day } = getStockholmDateParts(timestamp);
+    const calendarDate = new Date(Date.UTC(year, month - 1, day + dayOffset));
+    const targetAsUtc = Date.UTC(calendarDate.getUTCFullYear(), calendarDate.getUTCMonth(), calendarDate.getUTCDate());
+    let result = targetAsUtc;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+        const local = getStockholmDateParts(result);
+        const localAsUtc = Date.UTC(local.year, local.month - 1, local.day, local.hour, local.minute, local.second);
+        result = targetAsUtc - (localAsUtc - result);
+    }
+    return result;
+}
+function getTimelineBounds(payload, view) {
+    const windowStart = new Date(payload.window.start).getTime();
+    const todayStart = new Date(payload.window.today_start).getTime();
+    if (!Number.isFinite(windowStart) ||
+        !Number.isFinite(todayStart)) {
+        return undefined;
+    }
+    const tomorrowStart = getStockholmMidnight(todayStart, 1);
+    const followingStart = getStockholmMidnight(todayStart, 2);
+    const bounds = view === "yesterday"
+        ? { start: windowStart, end: todayStart, includeEnd: false }
+        : view === "today"
+            ? { start: todayStart, end: tomorrowStart, includeEnd: false }
+            : { start: tomorrowStart, end: followingStart, includeEnd: false };
+    return bounds.end > bounds.start ? bounds : undefined;
+}
+function isTimestampInTimeline(timestamp, bounds) {
+    return Number.isFinite(timestamp) &&
+        timestamp >= bounds.start &&
+        (bounds.includeEnd ? timestamp <= bounds.end : timestamp < bounds.end);
+}
+function shouldShowNowMarker(view) {
+    return view === "today";
+}
+function shouldIncludeForecast(view) {
+    return view !== "yesterday";
+}
+function shouldIncludeConsumption(view) {
+    return view !== "tomorrow";
+}
+function isHistoricalPriceInTimeline(timestamp, bounds, now) {
+    return isTimestampInTimeline(timestamp, bounds) && timestamp < now;
+}
+function isConsumptionTimestampInTimeline(timestamp, bounds, now) {
+    return isTimestampInTimeline(timestamp, bounds) && timestamp < now;
+}
+function isFuturePriceInTimeline(start, end, bounds, now) {
+    return isTimestampInTimeline(start, bounds) &&
+        Number.isFinite(end) &&
+        end > now;
+}
+function getFuturePriceIntervals(forecast, bounds, now) {
+    return forecast
+        .filter((item) => isFuturePriceInTimeline(new Date(item.start).getTime(), new Date(item.end).getTime(), bounds, now))
+        .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+}
+
 let EnergyDashboardCard = class EnergyDashboardCard extends i {
     constructor() {
         super(...arguments);
@@ -368,7 +420,7 @@ let EnergyDashboardCard = class EnergyDashboardCard extends i {
               ${this.renderTimelineSection()}
             </div>
 
-          ${this.view === "today-forward"
+          ${this.view === "today"
             ? b `<div class="dashboard-upcoming">
                 ${this.renderUpcomingPricesSection()}
               </div>`
@@ -495,7 +547,9 @@ let EnergyDashboardCard = class EnergyDashboardCard extends i {
             <div class="timeline-subtitle">
               ${this.view === "yesterday"
             ? "Gårdagens lokala dygn"
-            : "Idag och tillgängliga framtida importpriser"}
+            : this.view === "today"
+                ? "Dagens lokala dygn"
+                : "Morgondagens lokala dygn"}
             </div>
           </div>
           <div class="timeline-view-selector" role="group" aria-label="Tidsvy">
@@ -507,10 +561,16 @@ let EnergyDashboardCard = class EnergyDashboardCard extends i {
             >IGÅR</button>
             <button
               type="button"
-              aria-pressed="${this.view === "today-forward"}"
-              class=${this.view === "today-forward" ? "selected" : ""}
-              @click=${() => this.setView("today-forward")}
-            >IDAG + FRAMÅT</button>
+              aria-pressed="${this.view === "today"}"
+              class=${this.view === "today" ? "selected" : ""}
+              @click=${() => this.setView("today")}
+            >IDAG</button>
+            <button
+              type="button"
+              aria-pressed="${this.view === "tomorrow"}"
+              class=${this.view === "tomorrow" ? "selected" : ""}
+              @click=${() => this.setView("tomorrow")}
+            >IMORGON</button>
           </div>
           <div class="timeline-legend">
             <span class="legend-item">
@@ -568,15 +628,9 @@ let EnergyDashboardCard = class EnergyDashboardCard extends i {
         if (!bounds)
             return undefined;
         const { start, end } = bounds;
-        const forecast = (shouldShowNowMarker(this.view)
-            ? this.data.price.forecast
-            : [])
-            .filter((item) => {
-            const forecastStart = new Date(item.start).getTime();
-            const forecastEnd = new Date(item.end).getTime();
-            return isFuturePriceInTimeline(forecastStart, forecastEnd, bounds, now);
-        })
-            .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+        const forecast = shouldIncludeForecast(this.view)
+            ? getFuturePriceIntervals(this.data.price.forecast, bounds, now)
+            : [];
         const width = 1000;
         const height = 250;
         const plot = {
@@ -587,6 +641,11 @@ let EnergyDashboardCard = class EnergyDashboardCard extends i {
         };
         const plotWidth = width - plot.left - plot.right;
         const plotHeight = height - plot.top - plot.bottom;
+        const timelineNow = shouldShowNowMarker(this.view)
+            ? Math.min(Math.max(now, start), end)
+            : this.view === "yesterday"
+                ? end
+                : start;
         const x = (timestamp) => plot.left +
             ((timestamp - start) / (end - start)) * plotWidth;
         const importValues = [
@@ -602,7 +661,8 @@ let EnergyDashboardCard = class EnergyDashboardCard extends i {
         const maxImport = Math.max(currentImport, ...importValues, 0.01);
         const importMax = this.roundChartMax(maxImport);
         const houseValues = this.data.house_history
-            .filter((item) => isTimestampInTimeline(new Date(item.start).getTime(), bounds))
+            .filter((item) => shouldIncludeConsumption(this.view) &&
+            isConsumptionTimestampInTimeline(new Date(item.start).getTime(), bounds, timelineNow))
             .map((item) => item.energy_kwh)
             .filter((value) => Number.isFinite(value) && value > 0);
         const maxHouse = Math.max(...houseValues, 0.01);
@@ -617,9 +677,7 @@ let EnergyDashboardCard = class EnergyDashboardCard extends i {
             plotHeight,
             start,
             end,
-            now: !shouldShowNowMarker(this.view)
-                ? end
-                : Math.min(Math.max(now, start), end),
+            now: timelineNow,
             bounds,
             x,
             yImport,
@@ -645,17 +703,11 @@ let EnergyDashboardCard = class EnergyDashboardCard extends i {
     getTimelineHourTicks(timeline) {
         if (!timeline)
             return [];
-        const firstHour = new Date(timeline.start);
-        firstHour.setMinutes(0, 0, 0);
-        let timestamp = firstHour.getTime();
-        if (timestamp < timeline.start) {
-            firstHour.setHours(firstHour.getHours() + 1);
-            timestamp = firstHour.getTime();
-        }
+        const hourMs = 60 * 60 * 1000;
+        const firstHour = Math.ceil(timeline.start / hourMs) * hourMs;
         const ticks = [];
-        for (let tick = timestamp; tick <= timeline.end; tick += 60 * 60 * 1000) {
-            if (new Date(tick).getMinutes() === 0)
-                ticks.push(tick);
+        for (let tick = firstHour; tick <= timeline.end; tick += hourMs) {
+            ticks.push(tick);
         }
         const desktopStride = Math.max(1, Math.ceil(ticks.length / 26));
         return ticks.map((tick, index) => ({
@@ -666,7 +718,9 @@ let EnergyDashboardCard = class EnergyDashboardCard extends i {
         }));
     }
     getConsumerTimelineSeries(timeline) {
-        if (!timeline || !this.data)
+        if (!timeline ||
+            !this.data ||
+            !shouldIncludeConsumption(this.view))
             return [];
         return Object.values(this.data.consumers)
             .map((consumer, index) => {
@@ -819,7 +873,7 @@ let EnergyDashboardCard = class EnergyDashboardCard extends i {
     `;
     }
     renderHouseBars(timeline) {
-        if (!timeline || !this.data)
+        if (!timeline || !this.data || !shouldIncludeConsumption(this.view))
             return w ``;
         return this.data.house_history.map((item) => {
             const start = new Date(item.start).getTime();
@@ -867,8 +921,7 @@ let EnergyDashboardCard = class EnergyDashboardCard extends i {
             .filter((item) => Number.isFinite(item.start) &&
             Number.isFinite(item.end) &&
             Number.isFinite(item.import) &&
-            isTimestampInTimeline(item.start, timeline.bounds) &&
-            item.start < timeline.now)
+            isHistoricalPriceInTimeline(item.start, timeline.bounds, timeline.now))
             .sort((a, b) => a.start - b.start);
         const segments = [];
         let current = [];
@@ -928,6 +981,23 @@ let EnergyDashboardCard = class EnergyDashboardCard extends i {
             item.end > item.start);
         if (!future.length)
             return w ``;
+        if (future.length === 1) {
+            const point = future[0];
+            const x1 = timeline.x(point.start);
+            const x2 = timeline.x(Math.min(point.end, timeline.end));
+            const y = timeline.yImport(point.import);
+            return w `
+        <path
+          class="forecast-price-segment ${point.price_class.toLowerCase()}"
+          d="M ${x1.toFixed(2)} ${y.toFixed(2)} L ${x2.toFixed(2)} ${y.toFixed(2)}"
+          fill="none"
+          stroke-width="2.5"
+          stroke-dasharray="6 5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        ></path>
+      `;
+        }
         return w `
       ${future.slice(0, -1).map((point, index) => {
             const next = future[index + 1];
@@ -1977,7 +2047,7 @@ let EnergyDashboardCard = class EnergyDashboardCard extends i {
       font: inherit;
       font-size: 10px;
       font-weight: 600;
-      padding: 5px 8px;
+      padding: 5px 6px;
       white-space: nowrap;
     }
 

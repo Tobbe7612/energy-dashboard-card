@@ -6,14 +6,18 @@ import {
 } from "./dashboard-subscription";
 import {
   getTimelineBounds,
+  getFuturePriceIntervals,
   isConsumptionTimestampInTimeline,
-  isFuturePriceInTimeline,
+  isHistoricalPriceInTimeline,
   isTimestampInTimeline,
+  shouldIncludeConsumption,
+  shouldIncludeForecast,
   shouldShowNowMarker,
   DEFAULT_DASHBOARD_VIEW,
   type DashboardView,
 } from "./timeline-view";
 import {
+  SWEDISH_TIME_FORMATTER,
   formatIntervalWithFormatter,
   formatTimeLabelWithFormatter,
 } from "./time-formatters";
@@ -24,11 +28,6 @@ import type {
   EnergyDashboardCardConfig,
   HomeAssistant,
 } from "./types";
-
-const SWEDISH_TIME_FORMATTER = new Intl.DateTimeFormat("sv-SE", {
-  hour: "2-digit",
-  minute: "2-digit",
-});
 
 @customElement("energy-dashboard-card")
 export class EnergyDashboardCard extends LitElement {
@@ -220,7 +219,7 @@ export class EnergyDashboardCard extends LitElement {
               ${this.renderTimelineSection()}
             </div>
 
-          ${this.view === "today-forward"
+          ${this.view === "today"
             ? html`<div class="dashboard-upcoming">
                 ${this.renderUpcomingPricesSection()}
               </div>`
@@ -355,7 +354,9 @@ export class EnergyDashboardCard extends LitElement {
             <div class="timeline-subtitle">
               ${this.view === "yesterday"
                 ? "Gårdagens lokala dygn"
-                : "Idag och tillgängliga framtida importpriser"}
+                : this.view === "today"
+                  ? "Dagens lokala dygn"
+                  : "Morgondagens lokala dygn"}
             </div>
           </div>
           <div class="timeline-view-selector" role="group" aria-label="Tidsvy">
@@ -367,10 +368,16 @@ export class EnergyDashboardCard extends LitElement {
             >IGÅR</button>
             <button
               type="button"
-              aria-pressed="${this.view === "today-forward"}"
-              class=${this.view === "today-forward" ? "selected" : ""}
-              @click=${() => this.setView("today-forward")}
-            >IDAG + FRAMÅT</button>
+              aria-pressed="${this.view === "today"}"
+              class=${this.view === "today" ? "selected" : ""}
+              @click=${() => this.setView("today")}
+            >IDAG</button>
+            <button
+              type="button"
+              aria-pressed="${this.view === "tomorrow"}"
+              class=${this.view === "tomorrow" ? "selected" : ""}
+              @click=${() => this.setView("tomorrow")}
+            >IMORGON</button>
           </div>
           <div class="timeline-legend">
             <span class="legend-item">
@@ -433,18 +440,9 @@ export class EnergyDashboardCard extends LitElement {
     if (!bounds) return undefined;
     const { start, end } = bounds;
 
-    const forecast = (shouldShowNowMarker(this.view)
-      ? this.data.price.forecast
-      : [])
-      .filter((item) => {
-        const forecastStart = new Date(item.start).getTime();
-        const forecastEnd = new Date(item.end).getTime();
-        return isFuturePriceInTimeline(forecastStart, forecastEnd, bounds, now);
-      })
-      .sort(
-        (a, b) =>
-          new Date(a.start).getTime() - new Date(b.start).getTime(),
-      );
+    const forecast = shouldIncludeForecast(this.view)
+      ? getFuturePriceIntervals(this.data.price.forecast, bounds, now)
+      : [];
 
     const width = 1000;
     const height = 250;
@@ -457,6 +455,11 @@ export class EnergyDashboardCard extends LitElement {
 
     const plotWidth = width - plot.left - plot.right;
     const plotHeight = height - plot.top - plot.bottom;
+    const timelineNow = shouldShowNowMarker(this.view)
+      ? Math.min(Math.max(now, start), end)
+      : this.view === "yesterday"
+        ? end
+        : start;
 
     const x = (timestamp: number) =>
       plot.left +
@@ -484,7 +487,12 @@ export class EnergyDashboardCard extends LitElement {
 
     const houseValues = this.data.house_history
       .filter((item) =>
-        isTimestampInTimeline(new Date(item.start).getTime(), bounds),
+        shouldIncludeConsumption(this.view) &&
+        isConsumptionTimestampInTimeline(
+          new Date(item.start).getTime(),
+          bounds,
+          timelineNow,
+        ),
       )
       .map((item) => item.energy_kwh)
       .filter((value) => Number.isFinite(value) && value > 0);
@@ -506,9 +514,7 @@ export class EnergyDashboardCard extends LitElement {
       plotHeight,
       start,
       end,
-      now: !shouldShowNowMarker(this.view)
-        ? end
-        : Math.min(Math.max(now, start), end),
+      now: timelineNow,
       bounds,
       x,
       yImport,
@@ -538,22 +544,11 @@ export class EnergyDashboardCard extends LitElement {
   private getTimelineHourTicks(timeline: ReturnType<typeof this.buildTimelineModel>) {
     if (!timeline) return [];
 
-    const firstHour = new Date(timeline.start);
-    firstHour.setMinutes(0, 0, 0);
-
-    let timestamp = firstHour.getTime();
-    if (timestamp < timeline.start) {
-      firstHour.setHours(firstHour.getHours() + 1);
-      timestamp = firstHour.getTime();
-    }
-
+    const hourMs = 60 * 60 * 1000;
+    const firstHour = Math.ceil(timeline.start / hourMs) * hourMs;
     const ticks: number[] = [];
-    for (
-      let tick = timestamp;
-      tick <= timeline.end;
-      tick += 60 * 60 * 1000
-    ) {
-      if (new Date(tick).getMinutes() === 0) ticks.push(tick);
+    for (let tick = firstHour; tick <= timeline.end; tick += hourMs) {
+      ticks.push(tick);
     }
 
     const desktopStride = Math.max(1, Math.ceil(ticks.length / 26));
@@ -569,7 +564,11 @@ export class EnergyDashboardCard extends LitElement {
   private getConsumerTimelineSeries(
     timeline: ReturnType<typeof this.buildTimelineModel>,
   ) {
-    if (!timeline || !this.data) return [];
+    if (
+      !timeline ||
+      !this.data ||
+      !shouldIncludeConsumption(this.view)
+    ) return [];
 
     return Object.values(this.data.consumers)
       .map((consumer, index) => {
@@ -747,7 +746,7 @@ export class EnergyDashboardCard extends LitElement {
   }
 
   private renderHouseBars(timeline: ReturnType<typeof this.buildTimelineModel>) {
-    if (!timeline || !this.data) return svg``;
+    if (!timeline || !this.data || !shouldIncludeConsumption(this.view)) return svg``;
 
     return this.data.house_history.map((item) => {
       const start = new Date(item.start).getTime();
@@ -811,8 +810,11 @@ export class EnergyDashboardCard extends LitElement {
           Number.isFinite(item.start) &&
           Number.isFinite(item.end) &&
           Number.isFinite(item.import) &&
-          isTimestampInTimeline(item.start, timeline.bounds) &&
-          item.start < timeline.now,
+          isHistoricalPriceInTimeline(
+            item.start,
+            timeline.bounds,
+            timeline.now,
+          ),
       )
       .sort((a, b) => a.start - b.start);
 
@@ -888,6 +890,25 @@ export class EnergyDashboardCard extends LitElement {
       );
 
     if (!future.length) return svg``;
+
+    if (future.length === 1) {
+      const point = future[0];
+      const x1 = timeline.x(point.start);
+      const x2 = timeline.x(Math.min(point.end, timeline.end));
+      const y = timeline.yImport(point.import);
+
+      return svg`
+        <path
+          class="forecast-price-segment ${point.price_class.toLowerCase()}"
+          d="M ${x1.toFixed(2)} ${y.toFixed(2)} L ${x2.toFixed(2)} ${y.toFixed(2)}"
+          fill="none"
+          stroke-width="2.5"
+          stroke-dasharray="6 5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        ></path>
+      `;
+    }
 
     return svg`
       ${future.slice(0, -1).map((point, index) => {
@@ -2054,7 +2075,7 @@ export class EnergyDashboardCard extends LitElement {
       font: inherit;
       font-size: 10px;
       font-weight: 600;
-      padding: 5px 8px;
+      padding: 5px 6px;
       white-space: nowrap;
     }
 
