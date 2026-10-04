@@ -159,7 +159,33 @@ export type DashboardInsight =
   | ConsumerShareInsight
   | ConsumerPriceAlignmentInsight;
 
+export interface SolarEnergyData {
+  total_kwh: number | null;
+  to_house_kwh: number | null;
+  to_battery_kwh: number | null;
+  to_grid_kwh: number | null;
+}
+
+export interface BatteryEnergyData {
+  charged_kwh: number | null;
+  discharged_kwh: number | null;
+  to_house_kwh: number | null;
+  to_grid_kwh: number | null;
+}
+
+export interface DashboardEnergyDay {
+  solar: SolarEnergyData;
+  battery: BatteryEnergyData;
+}
+
+export interface DashboardEnergy {
+  yesterday: DashboardEnergyDay;
+  today: DashboardEnergyDay;
+  tomorrow: DashboardEnergyDay;
+}
+
 export interface DashboardPayload {
+  energy: DashboardEnergy;
   consumers: DashboardConsumers;
   grid_house_history: unknown[];
   house: HouseData;

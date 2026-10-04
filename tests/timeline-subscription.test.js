@@ -35,6 +35,8 @@ async function importTypeScript(path) {
 const timeline = await importTypeScript("../src/timeline-view.ts");
 const subscriptionModule = await importTypeScript("../src/dashboard-subscription.ts");
 const timeFormatters = await importTypeScript("../src/time-formatters.ts");
+const typesSource = await readFile(new URL("../src/types.ts", import.meta.url), "utf8");
+const cardSource = await readFile(new URL("../src/card.ts", import.meta.url), "utf8");
 const swedishTimeFormatter = timeFormatters.SWEDISH_TIME_FORMATTER;
 const yesterdayStart = Date.parse("2026-10-02T00:00:00+02:00");
 const todayStart = Date.parse("2026-10-03T00:00:00+02:00");
@@ -46,6 +48,57 @@ const payload = {
     end: new Date(windowEnd).toISOString(),
   },
 };
+
+function extractFunction(source, name, nextMarker) {
+  const start = source.indexOf(`export function ${name}`);
+  assert.notEqual(start, -1, `${name} is exported`);
+  const end = nextMarker ? source.indexOf(nextMarker, start) : source.indexOf("\n}", start) + 2;
+  const snippet = source.slice(start, end);
+  const js = ts.transpileModule(snippet, {
+    compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  return import(`data:text/javascript;base64,${Buffer.from(js).toString("base64")}`);
+}
+
+const energySelection = await extractFunction(cardSource, "selectEnergyDay", "export function formatEnergyValue");
+const energyFormatting = await extractFunction(cardSource, "formatEnergyValue", "@customElement");
+
+const makeEnergyDay = (value) => ({
+  solar: { total_kwh: value, to_house_kwh: value, to_battery_kwh: value, to_grid_kwh: value },
+  battery: { charged_kwh: value, discharged_kwh: value, to_house_kwh: value, to_grid_kwh: value },
+});
+const energyPayloadShape = {
+  energy: {
+    yesterday: makeEnergyDay(1),
+    today: makeEnergyDay(2),
+    tomorrow: makeEnergyDay(null),
+  },
+};
+
+test("DashboardPayload declares the complete nullable energy structure", () => {
+  assert.match(typesSource, /export interface SolarEnergyData[\s\S]*?total_kwh: number \| null/);
+  assert.match(typesSource, /export interface BatteryEnergyData[\s\S]*?charged_kwh: number \| null/);
+  assert.match(typesSource, /export interface DashboardEnergyDay[\s\S]*?solar: SolarEnergyData;[\s\S]*?battery: BatteryEnergyData;/);
+  assert.match(typesSource, /export interface DashboardEnergy[\s\S]*?yesterday: DashboardEnergyDay;[\s\S]*?today: DashboardEnergyDay;[\s\S]*?tomorrow: DashboardEnergyDay;/);
+  assert.match(typesSource, /export interface DashboardPayload \{\s*energy: DashboardEnergy;/);
+  assert.equal(Object.keys(energyPayloadShape.energy.yesterday.solar).length + Object.keys(energyPayloadShape.energy.yesterday.battery).length, 8);
+});
+
+test("energy view selection maps yesterday, today, and tomorrow", () => {
+  assert.equal(energySelection.selectEnergyDay(energyPayloadShape.energy, "yesterday"), energyPayloadShape.energy.yesterday);
+  assert.equal(energySelection.selectEnergyDay(energyPayloadShape.energy, "today"), energyPayloadShape.energy.today);
+  assert.equal(energySelection.selectEnergyDay(energyPayloadShape.energy, "tomorrow"), energyPayloadShape.energy.tomorrow);
+});
+
+test("null energy values render as a dash and tomorrow's eight nulls are safe", () => {
+  assert.equal(energyFormatting.formatEnergyValue(null, () => "0"), "—");
+  assert.equal(energyFormatting.formatEnergyValue(1.234, (value, decimals) => value.toFixed(decimals)), "1.23 kWh");
+  const tomorrow = energySelection.selectEnergyDay(energyPayloadShape.energy, "tomorrow");
+  const values = [...Object.values(tomorrow.solar), ...Object.values(tomorrow.battery)];
+  assert.equal(values.length, 8);
+  assert.doesNotThrow(() => values.map((value) => energyFormatting.formatEnergyValue(value, (number) => String(number))));
+  assert.deepEqual(values.map((value) => energyFormatting.formatEnergyValue(value, () => "0")), Array(8).fill("—"));
+});
 
 test("Swedish time label formats local 08:05 as 08:05", () => {
   const stockholmTime = new Date("2026-10-03T06:05:00.000Z");

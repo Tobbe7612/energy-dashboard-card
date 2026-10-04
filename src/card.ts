@@ -23,11 +23,27 @@ import {
 } from "./time-formatters";
 import type {
   DashboardConsumer,
+  DashboardEnergy,
+  DashboardEnergyDay,
   DashboardInsight,
   DashboardPayload,
   EnergyDashboardCardConfig,
   HomeAssistant,
 } from "./types";
+
+export function selectEnergyDay(
+  energy: DashboardEnergy,
+  view: DashboardView,
+): DashboardEnergyDay {
+  return energy[view];
+}
+
+export function formatEnergyValue(
+  value: number | null,
+  formatNumber: (value: number, decimals: number) => string,
+): string {
+  return value === null ? "—" : `${formatNumber(value, 2)} kWh`;
+}
 
 @customElement("energy-dashboard-card")
 export class EnergyDashboardCard extends LitElement {
@@ -216,6 +232,10 @@ export class EnergyDashboardCard extends LitElement {
             </div>
           </div>
 
+          <div class="dashboard-energy">
+            ${this.renderEnergySection()}
+          </div>
+
           ${this.view === "today"
             ? html`<div class="dashboard-upcoming">
                 ${this.renderUpcomingPricesSection()}
@@ -334,6 +354,52 @@ export class EnergyDashboardCard extends LitElement {
   // ---------------------------------------------------------------------------
   // TIMELINE
   // ---------------------------------------------------------------------------
+
+  private renderEnergySection() {
+    if (!this.data) return html``;
+    const day = selectEnergyDay(this.data.energy, this.view);
+    const metric = (label: string, value: number | null) => html`
+      <div class="energy-metric">
+        <span>${label}</span>
+        <strong>${formatEnergyValue(value, (number, decimals) => this.formatNumber(number, decimals))}</strong>
+      </div>
+    `;
+    const hasData = [
+      day.solar.total_kwh,
+      day.solar.to_house_kwh,
+      day.solar.to_battery_kwh,
+      day.solar.to_grid_kwh,
+      day.battery.charged_kwh,
+      day.battery.discharged_kwh,
+      day.battery.to_house_kwh,
+      day.battery.to_grid_kwh,
+    ].some((value) => value !== null);
+
+    return html`
+      <section class="energy-section" aria-label="Sol och batteri">
+        <div class="energy-heading">
+          <div class="section-title">SOL & BATTERI</div>
+          ${hasData ? "" : html`<span class="energy-empty">Energidata finns inte ännu</span>`}
+        </div>
+        <div class="energy-groups">
+          <div class="energy-group">
+            <div class="energy-group-title">SOL</div>
+            ${metric("Sol totalt", day.solar.total_kwh)}
+            ${metric("Sol → hus", day.solar.to_house_kwh)}
+            ${metric("Sol → batteri", day.solar.to_battery_kwh)}
+            ${metric("Sol → nät", day.solar.to_grid_kwh)}
+          </div>
+          <div class="energy-group">
+            <div class="energy-group-title">BATTERI</div>
+            ${metric("Batteri laddat", day.battery.charged_kwh)}
+            ${metric("Batteri urladdat", day.battery.discharged_kwh)}
+            ${metric("Batteri → hus", day.battery.to_house_kwh)}
+            ${metric("Batteri → nät", day.battery.to_grid_kwh)}
+          </div>
+        </div>
+      </section>
+    `;
+  }
 
   private renderTimelineSection() {
     if (!this.data) return html``;
@@ -1714,6 +1780,38 @@ export class EnergyDashboardCard extends LitElement {
       overflow: hidden;
     }
 
+    .dashboard-energy {
+      background: var(--energy-panel);
+      border: 1px solid var(--energy-border);
+      border-radius: 12px;
+      box-sizing: border-box;
+      grid-column: 1 / -1;
+      min-width: 0;
+      padding: 10px;
+      width: 100%;
+    }
+
+    .energy-heading,
+    .energy-group-title {
+      align-items: center;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .energy-groups {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(2, minmax(min(100%, 280px), 1fr));
+      margin-top: 8px;
+    }
+
+    .energy-group { min-width: 0; }
+    .energy-group-title { color: var(--energy-muted); font-size: 0.72rem; font-weight: 700; margin-bottom: 4px; }
+    .energy-metric { align-items: baseline; display: grid; font-size: 0.82rem; gap: 8px; grid-template-columns: minmax(0, 1fr) auto; padding: 2px 0; }
+    .energy-metric span { color: var(--energy-muted); min-width: 0; overflow-wrap: anywhere; }
+    .energy-metric strong { color: var(--energy-text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .energy-empty { color: var(--energy-muted); font-size: 0.76rem; }
+
     .dashboard-upcoming {
       background: var(--energy-panel);
       border: 1px solid var(--divider-color);
@@ -2883,6 +2981,10 @@ export class EnergyDashboardCard extends LitElement {
     @container dashboard-card (max-width: 520px) {
       .dashboard-layout {
         gap: 6px;
+      }
+
+      .energy-groups {
+        grid-template-columns: minmax(0, 1fr);
       }
 
       .price-header {
