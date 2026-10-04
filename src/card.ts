@@ -388,10 +388,12 @@ export class EnergyDashboardCard extends LitElement {
               <span class="legend-line future"></span>
               Prognos
             </span>
-            <span class="legend-item">
-              <span class="legend-bar"></span>
-              Förbrukning
-            </span>
+            ${shouldIncludeConsumption(this.view)
+              ? html`<span class="legend-item">
+                  <span class="legend-bar"></span>
+                  Förbrukning
+                </span>`
+              : ""}
             ${consumerSeries.map(({ consumer, index }) => html`
               <span class="legend-item">
                 <span
@@ -709,23 +711,25 @@ export class EnergyDashboardCard extends LitElement {
         opacity="0.35"
       ></line>
 
-      ${yTicks.map((ratio) => {
-        const y =
-          timeline.plot.top +
-          timeline.plotHeight -
-          ratio * timeline.plotHeight;
-        const value = timeline.houseMax * ratio;
+      ${shouldIncludeConsumption(this.view)
+        ? yTicks.map((ratio) => {
+            const y =
+              timeline.plot.top +
+              timeline.plotHeight -
+              ratio * timeline.plotHeight;
+            const value = timeline.houseMax * ratio;
 
-        return svg`
-          <text
-            x="${timeline.width - timeline.plot.right + 6}"
-            y="${y + 3}"
-            text-anchor="start"
-            fill="${secondary}"
-            font-size="10"
-          >${value.toFixed(1).replace(".", ",")}</text>
-        `;
-      })}
+            return svg`
+              <text
+                x="${timeline.width - timeline.plot.right + 6}"
+                y="${y + 3}"
+                text-anchor="start"
+                fill="${secondary}"
+                font-size="10"
+              >${value.toFixed(1).replace(".", ",")}</text>
+            `;
+          })
+        : ""}
 
       ${timeTicks.map(({ timestamp }) => {
         const x = timeline.x(timestamp);
@@ -932,12 +936,16 @@ export class EnergyDashboardCard extends LitElement {
         `;
       })}
 
-      <text
-        class="timeline-axis-title"
-        transform="translate(${timeline.width - 11} ${timeline.plot.top + timeline.plotHeight / 2}) rotate(90)"
-        text-anchor="middle"
-        dominant-baseline="middle"
-      >kWh</text>
+      ${shouldIncludeConsumption(this.view)
+        ? svg`
+            <text
+              class="timeline-axis-title"
+              transform="translate(${timeline.width - 11} ${timeline.plot.top + timeline.plotHeight / 2}) rotate(90)"
+              text-anchor="middle"
+              dominant-baseline="middle"
+            >kWh</text>
+          `
+        : ""}
     `;
   }
 

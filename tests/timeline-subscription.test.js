@@ -426,7 +426,7 @@ test("only IDAG has the NOW marker", () => {
   assert.equal(timeline.shouldShowNowMarker("today"), true);
 });
 
-test("forecast inclusion is independent from the NOW marker", () => {
+test("forecast and consumption axis/legend policies follow the selected view", () => {
   assert.equal(timeline.shouldIncludeForecast("yesterday"), false);
   assert.equal(timeline.shouldIncludeForecast("today"), true);
   assert.equal(timeline.shouldIncludeForecast("tomorrow"), true);

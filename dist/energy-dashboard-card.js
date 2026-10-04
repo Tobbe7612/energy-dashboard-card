@@ -581,10 +581,12 @@ let EnergyDashboardCard = class EnergyDashboardCard extends i {
               <span class="legend-line future"></span>
               Prognos
             </span>
-            <span class="legend-item">
-              <span class="legend-bar"></span>
-              Förbrukning
-            </span>
+            ${shouldIncludeConsumption(this.view)
+            ? b `<span class="legend-item">
+                  <span class="legend-bar"></span>
+                  Förbrukning
+                </span>`
+            : ""}
             ${consumerSeries.map(({ consumer, index }) => b `
               <span class="legend-item">
                 <span
@@ -840,21 +842,23 @@ let EnergyDashboardCard = class EnergyDashboardCard extends i {
         opacity="0.35"
       ></line>
 
-      ${yTicks.map((ratio) => {
-            const y = timeline.plot.top +
-                timeline.plotHeight -
-                ratio * timeline.plotHeight;
-            const value = timeline.houseMax * ratio;
-            return w `
-          <text
-            x="${timeline.width - timeline.plot.right + 6}"
-            y="${y + 3}"
-            text-anchor="start"
-            fill="${secondary}"
-            font-size="10"
-          >${value.toFixed(1).replace(".", ",")}</text>
-        `;
-        })}
+      ${shouldIncludeConsumption(this.view)
+            ? yTicks.map((ratio) => {
+                const y = timeline.plot.top +
+                    timeline.plotHeight -
+                    ratio * timeline.plotHeight;
+                const value = timeline.houseMax * ratio;
+                return w `
+              <text
+                x="${timeline.width - timeline.plot.right + 6}"
+                y="${y + 3}"
+                text-anchor="start"
+                fill="${secondary}"
+                font-size="10"
+              >${value.toFixed(1).replace(".", ",")}</text>
+            `;
+            })
+            : ""}
 
       ${timeTicks.map(({ timestamp }) => {
             const x = timeline.x(timestamp);
@@ -1019,12 +1023,16 @@ let EnergyDashboardCard = class EnergyDashboardCard extends i {
         `;
         })}
 
-      <text
-        class="timeline-axis-title"
-        transform="translate(${timeline.width - 11} ${timeline.plot.top + timeline.plotHeight / 2}) rotate(90)"
-        text-anchor="middle"
-        dominant-baseline="middle"
-      >kWh</text>
+      ${shouldIncludeConsumption(this.view)
+            ? w `
+            <text
+              class="timeline-axis-title"
+              transform="translate(${timeline.width - 11} ${timeline.plot.top + timeline.plotHeight / 2}) rotate(90)"
+              text-anchor="middle"
+              dominant-baseline="middle"
+            >kWh</text>
+          `
+            : ""}
     `;
     }
     renderNowMarker(timeline, priceClass) {
